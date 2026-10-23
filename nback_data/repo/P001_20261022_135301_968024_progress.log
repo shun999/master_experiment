@@ -1,0 +1,7 @@
+2026-10-22T13:53:01 | Detecting Tobii tracker
+2026-10-22T13:53:07 | BEFORE_CALIBRATION: SPACE to continue; ESC to quit (click task window if needed)
+2026-10-22T13:53:09 | BEFORE_CALIBRATION: SPACE detected
+2026-10-22T13:53:09 | CALIBRATION started
+2026-10-22T13:53:10 | CALIBRATION: enter SDK calibration mode
+2026-10-22T13:53:10 | CLEANUP: unsubscribing
+2026-10-22T13:53:11 | FINISHED: status=failed
