@@ -6,7 +6,8 @@ import tempfile
 import types
 import unittest
 
-from experiment_runtime import GAZE_COLUMNS, StreamRecorder
+from src.experiment_runtime import GAZE_COLUMNS, StreamRecorder
+from src.experiment_paths import create_output_prefix
 
 
 class Tracker:
@@ -25,7 +26,8 @@ class SharedRecorderTests(unittest.TestCase):
     def test_real_writer_keeps_settings_local_and_records_fields_and_quality(self):
         sdk = types.SimpleNamespace(EYETRACKER_GAZE_DATA=1)
         with tempfile.TemporaryDirectory() as root, redirect_stdout(io.StringIO()):
-            prefixes = [Path(root) / 'first', Path(root) / 'second']
+            prefixes = [create_output_prefix(root, 'nback', 'AFX', 1, 3, 2),
+                        create_output_prefix(root, 'arithmetic', 'AFX', 1, 1)]
             settings = self.settings(True)
             recorders = [StreamRecorder(prefixes[0], settings, sdk),
                          StreamRecorder(prefixes[1], self.settings(False), sdk)]

@@ -1,6 +1,6 @@
 import unittest
 
-from arithmetic_task import ArithmeticInput, OPERAND_RANGES, count_carries, make_arithmetic_design
+from src.arithmetic_task import ArithmeticInput, OPERAND_RANGES, count_carries, make_arithmetic_design
 
 
 class ArithmeticLogicTests(unittest.TestCase):

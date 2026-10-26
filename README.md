@@ -1,5 +1,45 @@
 # 修士論文の実験コード
 
+## フォルダー構成と実行PCへの配置
+
+```text
+experiment/
+  psychopy2022_spectrum1200_nback_lightweight.py       # N-backの起動・設定
+  psychopy2022_spectrum1200_arithmetic_lightweight.py  # 暗算の起動・設定
+  counterbalance.csv                                 # ID・実験回数の割り当て
+  src/                 # 両課題が使用する内部処理
+  tests/               # 機器を使用しない自動テスト
+  tools/               # 実験後の視線データ解析
+  docs/                # 解析の説明資料
+  data/                # 新規の実験結果（実行時に自動作成）
+```
+
+実行PCには、ルートの課題スクリプト・`counterbalance.csv`・**`src/` フォルダー全体**をこの配置のままコピーしてください。`src/` 内のファイルをルートへ取り出す必要はありません。`tests/`、`tools/`、`docs/` は課題実行には不要です。追加ライブラリのインストールは不要です。
+
+PsychoPy Coderでは、これまでと同じルートの課題スクリプトを開いて実行します。画面番号・課題時間なども、そのスクリプト先頭で変更できます。CSVと保存先は課題スクリプトの場所を基準に解決するため、作業ディレクトリに依存しません。
+
+## ID・実験回数ごとの結果保存
+
+入力したID・実験回数から、`data/<課題>/<ID>/session_<回数>/<日時>/` を作成します。N-backは `nback`、暗算は `arithmetic` です。実験回数は課題ごとに独立して数えます。
+
+```text
+data/
+  nback/AFX/session_01/20261026_153000_123456/
+    AFX_nback_s01_d03_n02_20261026_153000_123456_trials.csv
+    AFX_nback_s01_d03_n02_20261026_153000_123456_gaze.csv
+    AFX_nback_s01_d03_n02_20261026_153000_123456_tlx.csv
+    ...同じ実行のイベント・メタデータ・ログ・追加ストリーム
+  arithmetic/AFX/session_02/20261026_160000_123456/
+    AFX_arithmetic_s02_d02_20261026_160000_123456_trials.csv
+    ...同じ実行の全記録
+```
+
+日時は実行ごとに一度だけ生成します。同じID・回数で再実行しても別の日時フォルダーを作り、日時が衝突した場合は `_02`、`_03` のような連番を付けます。途中で中断した記録もその実行フォルダーへ保存します。入力キャンセル・割り当てエラーでは結果フォルダーを作りません。メタデータの `output_directory`・`output_prefix` に保存先を記録します。
+
+既存の `nback_data/`・`arithmetic_data/` は移動・変更しません。新しい保存先と従来の保存先はGitの追跡対象から除外します。
+
+解析には `tools/tobii_nback_1200hz_features.py` を使用します。引数なしでは `data/nback/` 配下を再帰検索して最新の視線CSVを選び、新しい結果がない場合は従来の `nback_data/` を検索します。暗算や特定の実行を選ぶ場合は `--gaze` に視線CSVのパスを指定してください。解析結果は入力CSVと同じフォルダーに保存します。詳細は[解析手順](docs/README_Tobii_Nback_1200Hz_Features_JA.md)を参照してください。
+
 ## 暗算課題の起動と実施方法
 
 `psychopy2022_spectrum1200_arithmetic_lightweight.py` をPsychoPy Coderで起動します。計測前のダイアログに被験者IDと**暗算の実験回数1〜3**を入力すると、`counterbalance.csv` の `arithmetic_1`〜`arithmetic_3` から難易度を選択します。N-backの実験回数とは独立して数えます。例えばAFXの1回目は難易度1、DNVの1回目は難易度3です。
@@ -36,7 +76,7 @@ NumLockをONにしてテンキーを使ってください。入力文字を被�
 
 同期は各ブロックの**課題60秒の開始・終了**に合わせます。最初の開始カウントダウン10秒は270秒の前に置き、次ブロックの開始カウントダウンは休憩の最後の10秒に表示します。終了カウントダウンは課題開始50秒後から表示し、最後の2問も通常どおり入力・採点します。開始・終了合図は実施者側に1秒間表示し、課題や休憩を延長しません。fNIRS・NeXuSの手動マーカー入力と記録開始・停止は実施者が行います。
 
-出力先は `arithmetic_data`、プレフィックスの例は `DNV_arithmetic_s01_d03_<日時>` です。出力フォルダーはGitの追跡対象から除外しています。
+出力先は `data/arithmetic/<ID>/session_<回数>/<日時>/`、プレフィックスの例は `DNV_arithmetic_s01_d03_<日時>` です。
 
 | 出力 | 主な内容 |
 | --- | --- |
@@ -51,9 +91,9 @@ NumLockをONにしてテンキーを使ってください。入力文字を被�
 
 問題は開始前に生成し、メタデータの `block_seeds` で再現できます。試行・イベント・入力履歴は各ブロックの課題終了時と休憩終了時にも保存します。中断した問題は途中入力を残し、`completed=0`、`correct` と `auto_submit_us` は空欄にします。中断・エラー時は計測を終了し、課題を完了していなければRaw TLXへ進みません。
 
-実行PCには暗算本体と同じフォルダーに、`arithmetic_task.py`、`experiment_runtime.py`、`experiment_assignment.py`、`nasa_tlx.py`、`counterbalance.csv` を配置してください。共通化に伴い、N-back本体にも `experiment_runtime.py` が必要です。追加ライブラリは不要です。
+実行PCへの配置は冒頭の構成を参照してください。暗算本体は `src/` の問題生成・計測・割り当て・Raw TLXの処理を読み込みます。
 
-暗算のプログラム呼び出しも `main(participant_id="DNV", session_number=1)` に対応します。視線のオフライン解析は既存の解析スクリプトへ `--gaze "arithmetic_data/<プレフィックス>_gaze.csv"` を渡せます。`stim_on_us`〜`stim_off_us` は問題の表示区間で、休憩は前問のISIに含めません。
+暗算のプログラム呼び出しも `main(participant_id="DNV", session_number=1)` に対応します。視線のオフライン解析は解析スクリプトへ `--gaze "data/arithmetic/DNV/session_01/<日時>/<プレフィックス>_gaze.csv"` を渡せます。`stim_on_us`〜`stim_off_us` は問題の表示区間で、休憩は前問のISIに含めません。
 
 ## N-backの起動時の被験者ID・実験回数の入力
 
@@ -74,7 +114,7 @@ NumLockをONにしてテンキーを使ってください。入力文字を被�
 
 未登録IDや不正な回数はメッセージを表示して再入力できます。CSVの欠損・ID重複・難易度の不備は開始前に検出します。キャンセルや入力・割り当てのエラーがある間は、Tobiiの記録や実験データの出力を開始しません。CSV自体の読み取りエラーはダイアログで通知して終了するので、ファイルを修正して再起動してください。
 
-実行PCには、本体と同じフォルダーに `counterbalance.csv`、`experiment_runtime.py`、`experiment_assignment.py`、`nasa_tlx.py` を配置してください。割り当てファイルは作業ディレクトリではなく、本体スクリプトの場所を基準に読み取ります。`PARTICIPANT_ID`・`N_BACK` を直接編集する起動方法は、ID・回数からの選択に置き換えています。
+実行PCには、本体と同じフォルダーに `counterbalance.csv` と `src/` フォルダー全体を配置してください。割り当てファイルは作業ディレクトリではなく、本体スクリプトの場所を基準に読み取ります。`PARTICIPANT_ID`・`N_BACK` を直接編集する起動方法は、ID・回数からの選択に置き換えています。
 
 出力プレフィックスにはID・課題・回数・難易度番号・N値・日時を含めます。例：`AFX_nback_s01_d03_n02_<日時>_trials.csv`。メタデータとRaw TLX CSVにも `session_number`、`difficulty_level`、`n_back` を保存します。メタデータには参照したCSV列、対応表、実際の刺激集合と0-backの固定ターゲットも保存します。
 
@@ -170,7 +210,7 @@ ESCで中断すると途中までの試行とイベントを保存し、両画�
 
 ### Raw TLXの回答と保存
 
-`nasa_tlx.py` は、[NASAの尺度定義](https://www.nasa.gov/human-systems-integration-division/nasa-task-load-index-tlx/)を基に、知的・知覚的要求、身体的要求、時間的要求、作業成績、努力、フラストレーションを日本語で1尺度ずつ表示します。実行PCにも本体スクリプトと同じフォルダーに `nasa_tlx.py` を配置してください。この日本語文面は原文に基づく説明であり、検証済みの日本語版と称するものではありません。
+`src/nasa_tlx.py` は、[NASAの尺度定義](https://www.nasa.gov/human-systems-integration-division/nasa-task-load-index-tlx/)を基に、知的・知覚的要求、身体的要求、時間的要求、作業成績、努力、フラストレーションを日本語で1尺度ずつ表示します。実行PCにも `src/` フォルダー全体を配置してください。この日本語文面は原文に基づく説明であり、検証済みの日本語版と称するものではありません。
 
 - 同じ難易度の6ブロック全体の課題について回答します。
 - 被験者画面にマウスカーソルを表示し、0～100を5点刻みに選択します。初期状態は未回答で、選択するまで「次へ」で進めません。
@@ -192,6 +232,8 @@ python -B -m unittest discover -v
 ```
 
 模擬画面・時計・キーボード・マウス・Tobiiを使い、N-back全40通り・暗算全30通りの割り当て、入力エラー・キャンセル、0-back、暗算の出題と入力、N-backの6ブロック540秒・暗算の3ブロック270秒、同期、記録停止、Raw TLX、途中保存・終了処理、旧CSVの解析を検証します。追加ライブラリは不要です。共通記録クラスのディスク書き込みも機器接続なしで検証します。
+
+保存先の分離・再実行時の上書き防止、全記録の集約、新旧の解析入力検索、別の作業ディレクトリからの起動も検証します。実機では、実行PCに `src/` を含む構成をコピーし、Coderの入力ダイアログ、両画面、テンキー入力、Tobii記録、同期合図、Raw TLX、実際の保存先を確認してください。
 
 本番前にはPython 3.8.10・PsychoPy 2022.2.4・実際の2画面構成で、画面番号、日本語の表示、キー入力のフォーカス、合図、刺激提示間隔、フレーム落ちとTobiiの記録状況を確認してください。`waitBlanking=False` と更新制限を設けていますが、実機の描画性能を模擬テストで保証することはできません。
 
@@ -237,11 +279,11 @@ N-backの基本4順序は、提示位置と直前条件の両方を均等化す�
 
 ### N-backの割り当て読み取りAPI
 
-`experiment_assignment.py` はPython標準ライブラリだけでCSVを読み取り、難易度とN値を返します。通常の起動では本体が入力ダイアログを表示します。テスト等では、本体の `main(participant_id="AFX", session_number=1)` を呼んでも同じCSV検証を通して実行できます。
+`src/experiment_assignment.py` はPython標準ライブラリだけでCSVを読み取り、難易度とN値を返します。通常の起動では本体が入力ダイアログを表示します。テスト等では、本体の `main(participant_id="AFX", session_number=1)` を呼んでも同じCSV検証を通して実行できます。
 
 ```python
 from pathlib import Path
-from experiment_assignment import load_nback_assignment
+from src.experiment_assignment import load_nback_assignment
 
 csv_path = Path(__file__).resolve().parent / "counterbalance.csv"
 assignment = load_nback_assignment(csv_path, "AFX", 1)

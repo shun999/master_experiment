@@ -10,8 +10,8 @@ import types
 import unittest
 from unittest.mock import patch
 
-from test_nback_dual_screen import Rig
-from test_experiment_assignment import Dialogs
+from tests.test_nback_dual_screen import Rig
+from tests.test_experiment_assignment import Dialogs
 
 
 class AssignmentRuntimeTests(unittest.TestCase):
@@ -24,7 +24,7 @@ class AssignmentRuntimeTests(unittest.TestCase):
             psychopy.gui = types.SimpleNamespace(Dlg=dialogs.dialog)
             with patch.dict(sys.modules, {'psychopy': psychopy}), redirect_stdout(io.StringIO()):
                 task.main()
-            metadata = json.loads(next(Path(root).glob('*_metadata.json')).read_text(encoding='utf-8'))
+            metadata = json.loads(next(Path(root).rglob('*_metadata.json')).read_text(encoding='utf-8'))
             self.assertEqual(metadata['participant'], 'DNV')
             self.assertEqual(metadata['session_number'], 2)
             self.assertEqual(metadata['difficulty_level'], 2)
@@ -72,9 +72,10 @@ class AssignmentRuntimeTests(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 task.main(' dnv ', 1)
             prefix = 'DNV_nback_s01_d01_n00_'
-            files = list(Path(root).iterdir())
+            files = [path for path in Path(root).rglob('*') if path.is_file()]
+            self.assertTrue(files)
             self.assertTrue(all(path.name.startswith(prefix) for path in files))
-            metadata = json.loads(next(Path(root).glob('*_metadata.json')).read_text(encoding='utf-8'))
+            metadata = json.loads(next(Path(root).rglob('*_metadata.json')).read_text(encoding='utf-8'))
             self.assertEqual(metadata['participant'], 'DNV')
             self.assertEqual(metadata['session_number'], 1)
             self.assertEqual(metadata['difficulty_level'], 1)
@@ -85,11 +86,11 @@ class AssignmentRuntimeTests(unittest.TestCase):
             self.assertEqual(metadata['stimulus_symbols'], '0123456789X')
             self.assertEqual(metadata['completed_trials'], 180)
             self.assertAlmostEqual(metadata['actual_set_seconds'], 540, delta=.04)
-            with next(Path(root).glob('*_trials.csv')).open(encoding='utf-8') as stream:
+            with next(Path(root).rglob('*_trials.csv')).open(encoding='utf-8') as stream:
                 rows = list(csv.DictReader(stream))
             self.assertTrue(any(row['stimulus'] == 'X' for row in rows))
             self.assertTrue(all(int(row['is_target']) == int(row['stimulus'] == 'X') for row in rows))
-            with next(Path(root).glob('*_tlx.csv')).open(encoding='utf-8-sig') as stream:
+            with next(Path(root).rglob('*_tlx.csv')).open(encoding='utf-8-sig') as stream:
                 tlx = next(csv.DictReader(stream))
             self.assertEqual((tlx['participant_id'], tlx['session_number'], tlx['difficulty_level'], tlx['n_back']),
                              ('DNV', '1', '1', '0'))
@@ -107,11 +108,11 @@ class AssignmentRuntimeTests(unittest.TestCase):
                 task.N_TRIALS, task.N_BLOCKS, task.REST_SECONDS, task.SYNC_COUNTDOWN_SECONDS = 6, 2, 3, 2
                 with redirect_stdout(io.StringIO()):
                     task.main('DNV', session)
-                metadata = json.loads(next(Path(root).glob('*_metadata.json')).read_text(encoding='utf-8'))
+                metadata = json.loads(next(Path(root).rglob('*_metadata.json')).read_text(encoding='utf-8'))
                 self.assertEqual(metadata['n_back'], expected_n)
                 self.assertEqual(metadata['difficulty_level'], expected_n + 1)
                 self.assertEqual(metadata['session_number'], session)
-                with next(Path(root).glob('*_trials.csv')).open(encoding='utf-8') as stream:
+                with next(Path(root).rglob('*_trials.csv')).open(encoding='utf-8') as stream:
                     rows = list(csv.DictReader(stream))
                 self.assertTrue(all(row['stimulus'] in '0123456789' for row in rows))
                 for block in (1, 2):
@@ -133,7 +134,7 @@ class AssignmentRuntimeTests(unittest.TestCase):
             ]
             with redirect_stdout(io.StringIO()):
                 task.main('DNV', 1)
-            with next(Path(root).glob('*_trials.csv')).open(encoding='utf-8') as stream:
+            with next(Path(root).rglob('*_trials.csv')).open(encoding='utf-8') as stream:
                 rows = list(csv.DictReader(stream))
             self.assertEqual([row['response_key'] for row in rows[:3]], ['left', 'right', ''])
             self.assertEqual([row['correct'] for row in rows[:3]], ['1', '1', '0'])

@@ -36,20 +36,26 @@ from pathlib import Path
 import random
 import sys
 
+# PsychoPy Coder may start with another working directory.
+PROJECT_ROOT = Path(__file__).resolve().parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from psychopy import core, visual
 from psychopy.hardware import keyboard
 import psychopy
 import tobii_research as tr
 
-import experiment_runtime as runtime
-from experiment_runtime import (ExperimentAborted, check_escape, json_safe, save_csv,
+import src.experiment_runtime as runtime
+from src.experiment_runtime import (ExperimentAborted, check_escape, json_safe, save_csv,
     tracker_info, frame_timing_summary, OPTIONAL_STREAMS, NOTIFICATIONS)
-from experiment_assignment import load_arithmetic_assignment, prompt_arithmetic_assignment
-from arithmetic_task import OPERAND_RANGES, ArithmeticInput, make_arithmetic_design
-from nasa_tlx import RawTLXSession, run_raw_tlx
+from src.experiment_assignment import load_arithmetic_assignment, prompt_arithmetic_assignment
+from src.arithmetic_task import OPERAND_RANGES, ArithmeticInput, make_arithmetic_design
+from src.experiment_paths import create_output_prefix
+from src.nasa_tlx import RawTLXSession, run_raw_tlx
 
-OUTPUT_DIR = Path(__file__).resolve().parent / "arithmetic_data"
-COUNTERBALANCE_CSV = Path(__file__).resolve().parent / "counterbalance.csv"
+OUTPUT_DIR = PROJECT_ROOT / "data"
+COUNTERBALANCE_CSV = PROJECT_ROOT / "counterbalance.csv"
 EVENT_COLUMNS = ["event", "trial", "stimulus", "system_time_stamp_us", "block"]
 TRIAL_COLUMNS = [
     "trial", "block", "trial_in_block", "stimulus", "operand_a", "operand_b",
@@ -370,14 +376,12 @@ def main(participant_id=None, session_number=None):
         raise ValueError("Task and rest must accommodate the countdown and marker cue")
     validate_screen_configuration()
 
-    base = OUTPUT_DIR / (f"{subject}_arithmetic_s{assignment.session_number:02d}"
-                         f"_d{assignment.difficulty_level:02d}_"
-                         + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
     rng_seed = SEED if SEED is not None else random.SystemRandom().randrange(2 ** 32)
     seed_rng = random.Random(rng_seed)
     block_seeds = [seed_rng.randrange(2 ** 32) for _ in range(N_BLOCKS)]
     designs = [make_arithmetic_design(difficulty, N_TRIALS, seed) for seed in block_seeds]
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    base = create_output_prefix(OUTPUT_DIR, "arithmetic", subject,
+                                assignment.session_number, assignment.difficulty_level)
     recorder = StreamRecorder(base)
     events, trials, inputs = [], [], []
     tracker, win, operator_win, operator = None, None, None, None
@@ -635,6 +639,7 @@ def main(participant_id=None, session_number=None):
             "task": "arithmetic", "session_number": assignment.session_number,
             "difficulty_level": assignment.difficulty_level,
             "counterbalance_csv": str(COUNTERBALANCE_CSV),
+            "output_directory": str(base.parent), "output_prefix": str(base),
             "counterbalance_column": assignment.column,
             "operand_digits": assignment.operand_digits,
             "operand_range": OPERAND_RANGES[difficulty],

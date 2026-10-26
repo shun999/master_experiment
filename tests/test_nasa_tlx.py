@@ -9,8 +9,8 @@ import types
 import unittest
 from unittest.mock import patch
 
-from nasa_tlx import RawTLXSession, SCALE_KEYS, SCALES, run_raw_tlx
-from test_nback_dual_screen import Rig, Text
+from src.nasa_tlx import RawTLXSession, SCALE_KEYS, SCALES, run_raw_tlx
+from tests.test_nback_dual_screen import Rig, Text
 
 
 class MouseUI:

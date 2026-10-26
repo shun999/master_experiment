@@ -47,21 +47,27 @@ from pathlib import Path
 import random
 import sys
 
+# PsychoPy Coder may start with another working directory.
+PROJECT_ROOT = Path(__file__).resolve().parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from psychopy import core, visual
 from psychopy.hardware import keyboard
 import psychopy
 import tobii_research as tr
-from nasa_tlx import RawTLXSession, run_raw_tlx
-from experiment_assignment import (NBACK_BY_DIFFICULTY, load_nback_assignment,
+from src.experiment_paths import create_output_prefix
+from src.nasa_tlx import RawTLXSession, run_raw_tlx
+from src.experiment_assignment import (NBACK_BY_DIFFICULTY, load_nback_assignment,
                                    prompt_nback_assignment)
 
-import experiment_runtime as runtime
-from experiment_runtime import (EYE_FIELDS, GAZE_COLUMNS, OPTIONAL_STREAMS, NOTIFICATIONS,
+import src.experiment_runtime as runtime
+from src.experiment_runtime import (EYE_FIELDS, GAZE_COLUMNS, OPTIONAL_STREAMS, NOTIFICATIONS,
     ExperimentAborted, check_escape, json_safe, list_components, gaze_csv_row,
     frame_timing_summary, save_csv, tracker_info)
 
-OUTPUT_DIR = Path(__file__).resolve().parent / "nback_data"
-COUNTERBALANCE_CSV = Path(__file__).resolve().parent / "counterbalance.csv"
+OUTPUT_DIR = PROJECT_ROOT / "data"
+COUNTERBALANCE_CSV = PROJECT_ROOT / "counterbalance.csv"
 
 EVENT_COLUMNS = ["event", "trial", "stimulus", "system_time_stamp_us", "block"]
 TRIAL_COLUMNS = [
@@ -391,14 +397,13 @@ def main(participant_id=None, session_number=None):
         raise ValueError("Task and rest must accommodate the countdown and marker cue")
     validate_screen_configuration()
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    base = OUTPUT_DIR / (f"{subject}_nback_s{assignment.session_number:02d}"
-                         f"_d{assignment.difficulty_level:02d}_n{n_back:02d}_"
-                         + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
     rng_seed = SEED if SEED is not None else random.SystemRandom().randrange(2 ** 32)
     seed_rng = random.Random(rng_seed)
     block_seeds = [seed_rng.randrange(2 ** 32) for _ in range(N_BLOCKS)]
     designs = [make_design(n_back, N_TRIALS, seed) for seed in block_seeds]
+    base = create_output_prefix(OUTPUT_DIR, "nback", subject,
+                                assignment.session_number, assignment.difficulty_level,
+                                n_back=n_back)
     recorder = StreamRecorder(base)
     events, trials = [], []
     tracker, win, operator_win, operator = None, None, None, None
@@ -666,6 +671,7 @@ def main(participant_id=None, session_number=None):
             "task": "nback", "session_number": assignment.session_number,
             "difficulty_level": assignment.difficulty_level,
             "counterbalance_csv": str(COUNTERBALANCE_CSV),
+            "output_directory": str(base.parent), "output_prefix": str(base),
             "counterbalance_column": assignment.column,
             "difficulty_to_nback": NBACK_BY_DIFFICULTY,
             "requested_trials": N_TRIALS * N_BLOCKS,

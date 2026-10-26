@@ -14,7 +14,9 @@ labels as predictors. Use subject-wise train/test splits; fit transforms on trai
 
 # ===================== EDIT IN PSYCHOPY CODER ===========================
 from pathlib import Path
-DATA_DIR = Path(__file__).resolve().parent / "nback_data"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DATA_DIR = PROJECT_ROOT / "data" / "nback"
+LEGACY_DATA_DIR = PROJECT_ROOT / "nback_data"
 RUN_PREFIX = ""           # "": newest *_gaze.csv, or e.g. "P001_20261022_..."
 MAX_DERIVATIVE_GAP_MS = 3.0  # >3 ms or timestamp reversal: derivative = missing
 OPENNESS_MATCH_TOLERANCE_US = 0  # default EXACT device timestamp match
@@ -507,15 +509,26 @@ def find_input(explicit=None):
         return p
     if RUN_PREFIX.strip():
         candidate = Path(RUN_PREFIX.strip()).expanduser()
-        if not candidate.is_absolute():
-            candidate = DATA_DIR / candidate
-        if str(candidate).endswith("_gaze.csv"):
+        if not str(candidate).endswith("_gaze.csv"):
+            candidate = Path(str(candidate) + "_gaze.csv")
+        if candidate.is_absolute():
             return candidate
-        return Path(str(candidate) + "_gaze.csv")
-    matches = list(DATA_DIR.glob("*_gaze.csv"))
-    if not matches:
-        raise FileNotFoundError("No *_gaze.csv was found in {}".format(DATA_DIR))
-    return max(matches, key=lambda p: p.stat().st_mtime)
+        for directory in (DATA_DIR, LEGACY_DATA_DIR):
+            direct = directory / candidate
+            if direct.is_file():
+                return direct
+            if candidate.parent == Path("."):
+                matches = [p for p in directory.rglob("*_gaze.csv") if p.name == candidate.name]
+                if len(matches) > 1:
+                    raise ValueError("Multiple recordings match RUN_PREFIX; specify the full path or --gaze")
+                if matches:
+                    return matches[0]
+        return DATA_DIR / candidate
+    for directory in (DATA_DIR, LEGACY_DATA_DIR):
+        matches = [p for p in directory.rglob("*_gaze.csv") if p.is_file()]
+        if matches:
+            return max(matches, key=lambda p: (p.stat().st_mtime, str(p)))
+    raise FileNotFoundError("No *_gaze.csv was found in {} or {}".format(DATA_DIR, LEGACY_DATA_DIR))
 
 
 def output_float(value):

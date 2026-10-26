@@ -7,11 +7,11 @@ import types
 import unittest
 from unittest.mock import patch
 
-from experiment_assignment import (AssignmentTableError, load_nback_assignment,
+from src.experiment_assignment import (AssignmentTableError, load_nback_assignment,
     prompt_nback_assignment, read_nback_table, select_nback_assignment)
 
 
-CSV_PATH = Path(__file__).with_name('counterbalance.csv')
+CSV_PATH = Path(__file__).resolve().parents[1].joinpath('counterbalance.csv')
 HEADER = 'participant_id,nback_1,nback_2,nback_3,nback_4\n'
 
 

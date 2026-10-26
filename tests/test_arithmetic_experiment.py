@@ -11,13 +11,13 @@ import types
 import unittest
 from unittest.mock import patch
 
-from experiment_assignment import load_arithmetic_assignment, prompt_arithmetic_assignment, AssignmentTableError
-from test_experiment_assignment import Dialogs
-from test_nback_dual_screen import Rig, Clock
-from tobii_nback_1200hz_features import TrialLabels
+from src.experiment_assignment import load_arithmetic_assignment, prompt_arithmetic_assignment, AssignmentTableError
+from tests.test_experiment_assignment import Dialogs
+from tests.test_nback_dual_screen import Rig, Clock
+from tools.tobii_nback_1200hz_features import TrialLabels
 
 
-TASK_PATH = Path(__file__).with_name('psychopy2022_spectrum1200_arithmetic_lightweight.py')
+TASK_PATH = Path(__file__).resolve().parents[1].joinpath('psychopy2022_spectrum1200_arithmetic_lightweight.py')
 
 
 class InputClock(Clock):
@@ -112,7 +112,7 @@ class ArithmeticRig(Rig):
             return rows
         task.make_arithmetic_design = design
         def tlx(win, operator, session, stamp, check_abort):
-            from nasa_tlx import SCALE_KEYS
+            from src.nasa_tlx import SCALE_KEYS
             assert self.recorder.closed and session.blocks == task.N_BLOCKS
             with Path(str(self.recorder.base) + '_trials.csv').open(encoding='utf-8') as stream:
                 assert len(list(csv.DictReader(stream))) == task.N_TRIALS * task.N_BLOCKS
@@ -166,10 +166,10 @@ class ArithmeticExperimentTests(unittest.TestCase):
 
     def read(self, root):
         root = Path(root)
-        metadata = json.loads(next(root.glob('*_metadata.json')).read_text(encoding='utf-8'))
+        metadata = json.loads(next(root.rglob('*_metadata.json')).read_text(encoding='utf-8'))
         tables = []
         for suffix in ('trials', 'events', 'input', 'tlx'):
-            matches = list(root.glob('*_' + suffix + '.csv'))
+            matches = list(root.rglob('*_' + suffix + '.csv'))
             if matches:
                 with matches[0].open(encoding='utf-8-sig', newline='') as stream:
                     tables.append(list(csv.DictReader(stream)))

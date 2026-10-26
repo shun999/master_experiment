@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Hardware-free checks: python -m unittest test_nback_dual_screen -v."""
+"""Hardware-free checks: python -m unittest tests.test_nback_dual_screen -v."""
 
 import csv
 from contextlib import redirect_stdout
@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 
-TASK_PATH = Path(__file__).with_name('psychopy2022_spectrum1200_nback_lightweight.py')
+TASK_PATH = Path(__file__).resolve().parents[1].joinpath('psychopy2022_spectrum1200_nback_lightweight.py')
 
 
 class Clock:
@@ -241,7 +241,7 @@ class Rig:
             ]
 
         def questionnaire(win, operator, session, stamp, check_abort):
-            from nasa_tlx import SCALE_KEYS
+            from src.nasa_tlx import SCALE_KEYS
             assert self.recorder.closed
             with Path(str(self.recorder.base) + '_trials.csv').open(encoding='utf-8') as stream:
                 assert len(list(csv.DictReader(stream))) == task.N_TRIALS * task.N_BLOCKS
@@ -263,10 +263,10 @@ class Rig:
 class DualScreenTests(unittest.TestCase):
     def read_outputs(self, root):
         root = Path(root)
-        metadata = json.loads(next(root.glob('*_metadata.json')).read_text(encoding='utf-8'))
-        with next(root.glob('*_events.csv')).open(encoding='utf-8', newline='') as stream:
+        metadata = json.loads(next(root.rglob('*_metadata.json')).read_text(encoding='utf-8'))
+        with next(root.rglob('*_events.csv')).open(encoding='utf-8', newline='') as stream:
             events = list(csv.DictReader(stream))
-        with next(root.glob('*_trials.csv')).open(encoding='utf-8', newline='') as stream:
+        with next(root.rglob('*_trials.csv')).open(encoding='utf-8', newline='') as stream:
             trials = list(csv.DictReader(stream))
         return metadata, events, trials
 
@@ -280,7 +280,7 @@ class DualScreenTests(unittest.TestCase):
     def test_full_540_second_protocol_and_sync(self):
         with tempfile.TemporaryDirectory() as root:
             rig, task, metadata, events, trials = self.run_task(root, full=True)
-            with next(Path(root).glob('*_tlx.csv')).open(encoding='utf-8-sig') as stream:
+            with next(Path(root).rglob('*_tlx.csv')).open(encoding='utf-8-sig') as stream:
                 tlx = next(csv.DictReader(stream))
         self.assertEqual(metadata['status'], 'completed')
         self.assertEqual(metadata['completed_trials'], 180)
@@ -380,7 +380,7 @@ class DualScreenTests(unittest.TestCase):
                     self.assertEqual(metadata['completed_blocks'], 2)
                     self.assertEqual(metadata['tlx_status'], 'aborted')
                     self.assertIsNone(metadata['raw_tlx'])
-                    with next(Path(root).glob('*_tlx.csv')).open(encoding='utf-8-sig') as stream:
+                    with next(Path(root).rglob('*_tlx.csv')).open(encoding='utf-8-sig') as stream:
                         row = next(csv.DictReader(stream))
                     self.assertEqual(row['physical_demand'], '20')
                     self.assertEqual(row['temporal_demand'], '')

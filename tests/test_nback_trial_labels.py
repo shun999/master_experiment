@@ -3,7 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from tobii_nback_1200hz_features import TrialLabels
+from tools.tobii_nback_1200hz_features import TrialLabels
 
 
 class TrialLabelTests(unittest.TestCase):

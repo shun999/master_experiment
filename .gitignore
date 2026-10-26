@@ -1,3 +1,6 @@
 AGENTS.md
 nback_data
 arithmetic_data/
+data/
+__pycache__/
+*.py[cod]

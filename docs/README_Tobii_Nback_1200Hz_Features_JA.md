@@ -4,23 +4,23 @@
 
 ## 1. ファイル
 
-- `tobii_nback_1200hz_features.py`：解析本体
-- `test_tobii_nback_1200hz_features.py`：模擬データを使った単体テスト（任意）
+- `tools/tobii_nback_1200hz_features.py`：解析本体
+- `tests/`：保存先の検索・試行時刻ラベルなどの自動テスト
 
 本体は以前の軽量版 `psychopy2022_spectrum1200_nback_lightweight.py` が生成する `*_gaze.csv` の**全行を保持**し、1200 Hz相当の時系列特徴量を右側に追加します。サンプリング周波数を補間で増やすことはありません。元ファイルは編集しません。
 
 ## 2. 使い方
 
-1. `tobii_nback_1200hz_features.py` を以前の実験コードと**同じフォルダー**に保存します。
-2. そのフォルダーに `nback_data` があり、`*_gaze.csv` が含まれていることを確認します。
-3. PsychoPy Coderでこのファイルを開いて「Run」を押します。`RUN_PREFIX = ""` なら**最新の** `*_gaze.csv` が自動選択されます。
-4. 特定の実験を解析する場合は冒頭で `RUN_PREFIX = "P001_20261022_123456_123456"` のように設定します（`_gaze.csv`を付けない）。
+1. プロジェクト内の `tools/tobii_nback_1200hz_features.py` をPsychoPy Coderで開きます。
+2. 新しい実験結果は `data/nback/<ID>/session_<回数>/<日時>/` に保存されます。従来の `nback_data/` もそのまま使用できます。
+3. 「Run」を押します。`RUN_PREFIX = ""` なら `data/nback/` 配下を再帰検索して**最新の** `*_gaze.csv` を選択します。新形式の結果がない場合だけ `nback_data/` を検索します。パスはスクリプトの場所を基準に解決します。
+4. 特定の実験を解析する場合は冒頭の `RUN_PREFIX` にファイル名のプレフィックス、`DATA_DIR` からの相対パス、または絶対パスを指定します（`_gaze.csv` は省略可能）。ファイル名だけの指定は配下を再帰検索し、複数一致時はフルパスの指定を求めます。暗算を含む任意の視線CSVは `--gaze` にパスを渡しても選択できます。
 5. 出力された `*_features_1200Hz.csv` と `*_features_quality.json` を確認します。
 
 あるいは別のPython環境から実行する場合：
 
 ```bash
-python tobii_nback_1200hz_features.py --gaze "C:\\Research\\nback_data\\P001_20261022_123456_123456_gaze.csv"
+python tools/tobii_nback_1200hz_features.py --gaze "data/nback/AFX/session_01/<日時>/<プレフィックス>_gaze.csv"
 ```
 
 ### 期待する入力
@@ -28,16 +28,19 @@ python tobii_nback_1200hz_features.py --gaze "C:\\Research\\nback_data\\P001_202
 ```text
 実験フォルダー/
   psychopy2022_spectrum1200_nback_lightweight.py
-  tobii_nback_1200hz_features.py
-  nback_data/
-    P001_日時_gaze.csv                  # 必須
-    P001_日時_eye_openness.jsonl        # 開眼度を保存していれば統合
-    P001_日時_metadata.json             # 画面の3D幾何情報
-    P001_日時_trials.csv               # N-back試行時刻（任意）
-    P001_日時_events.csv               # 課題終了時刻（任意）
+  tools/
+    tobii_nback_1200hz_features.py
+  data/nback/AFX/session_01/<日時>/
+    <プレフィックス>_gaze.csv                  # 必須
+    <プレフィックス>_eye_openness.jsonl        # 開眼度を保存していれば統合
+    <プレフィックス>_metadata.json             # 画面の3D幾何情報
+    <プレフィックス>_trials.csv                # 試行時刻（任意）
+    <プレフィックス>_events.csv                # 課題終了時刻（任意）
 ```
 
-`eye_openness.jsonl` が存在しなければ開眼度に関する列は空欄になります。**後処理によって未計測の開眼度を復元することはできません。** 以前の軽量版では `RECORD_EYE_OPENNESS = False` が初期設定です。将来の収録で必要であれば `True` に変更してください（1200 Hz収録の安定性を再検証してください）。眼球画像ファイルはこの特徴量スクリプトでは使用しません。
+`eye_openness.jsonl` が存在しなければ開眼度に関する列は空欄になります。**後処理によって未計測の開眼度を復元することはできません。** 現在の課題では `RECORD_EYE_OPENNESS = True` が初期設定です。変更した場合は実行環境で1200 Hz収録の安定性を確認してください。眼球画像ファイルはこの特徴量スクリプトでは使用しません。
+
+解析結果は入力した視線CSVと同じフォルダーへ保存します。`--output` で出力CSVのパスを指定することもできます。新しい保存先・従来の保存先の両方を明示的な `--gaze` 指定で読み込めます。
 
 ## 3. 各時点（同一サンプル）で計算する特徴量
 
@@ -119,10 +122,10 @@ X = df[['pupil_mean_mm', 'gaze_angular_speed_deg_s',
 ## 7. 単体テスト
 
 ```bash
-python test_tobii_nback_1200hz_features.py
+python -B -m unittest tests.test_experiment_paths tests.test_nback_trial_labels -v
 ```
 
-模擬12行で以下を検証します：入力／出力行数が同じ、左右瞳孔平均、有効性マスク、開眼度の厳密タイムスタンプ統合、眼球位置と輻輳角、画面中心角距離、空白になる欠損、サンプル間ギャップの微分停止、刺激時刻の注釈、メタデータがない場合の安全な欠損処理。
+プロジェクトのルートで実行します。新旧の保存先からの検索、ID・課題・回数別の保存、再実行時の分離、作業ディレクトリに依存しない起動、休憩を前問のISIに含めない試行時刻ラベルなどを検証します。全テストは `python -B -m unittest discover -v` で実行できます。
 
 ## 8. 技術上の定義（参照）
 
