@@ -12,7 +12,9 @@ Compatible Python/Tobii SDK versions depend on the exact Standalone install.
 # ========================= EDIT THESE SETTINGS ===========================
 PARTICIPANT_ID = "P001"       # Use a pseudonym; do not put participants' names here
 N_BACK = 1
-N_TRIALS = 10
+N_TRIALS = 30               # Trials per block
+N_BLOCKS = 6
+REST_SECONDS = 30.0
 STIMULUS_SECONDS = 0.50
 ISI_SECONDS = 1.50
 TARGET_PROBABILITY = 0.30
@@ -24,7 +26,7 @@ OPERATOR_SCREEN_INDEX = 0    # Separate operator monitor
 OPERATOR_WINDOW_SIZE = (960, 640)  # Operator window size in pixels
 OPERATOR_REFRESH_HZ = 5.0    # Maximum dashboard refresh rate during the task
 SYNC_COUNTDOWN_SECONDS = 10  # Countdown before each manual marker cue
-SYNC_CUE_SECONDS = 1.0       # Fixation continues while the marker cue is visible
+SYNC_CUE_SECONDS = 1.0       # Cue runs concurrently with the task/rest
 SKIP_CALIBRATION = False
 # Start with only 1200-Hz gaze CSV. Turn on options one at a time after testing.
 RECORD_EYE_OPENNESS = True       # Adds ~1200 events/sec; try enabling SECOND
@@ -56,6 +58,7 @@ from psychopy import core, visual
 from psychopy.hardware import keyboard
 import psychopy
 import tobii_research as tr
+from nasa_tlx import RawTLXSession, run_raw_tlx
 
 OUTPUT_DIR = Path(__file__).resolve().parent / "nback_data"
 
@@ -76,10 +79,12 @@ for _side in ("left", "right"):
     for _field, _components in EYE_FIELDS:
         GAZE_COLUMNS.extend(f"{_side}_{_field}_{c}" for c in _components)
 
-EVENT_COLUMNS = ["event", "trial", "stimulus", "system_time_stamp_us"]
+EVENT_COLUMNS = ["event", "trial", "stimulus", "system_time_stamp_us", "block"]
 TRIAL_COLUMNS = [
     "trial", "stimulus", "is_target", "response_key", "correct",
-    "rt_seconds", "stim_on_us", "stim_off_us", "response_detected_us", "completed",
+    "rt_seconds", "stim_on_us", "stim_off_us", "response_detected_us",
+    "block", "trial_in_block", "response_window_end_us",
+    "planned_onset_seconds", "onset_error_seconds", "completed",
 ]
 
 OPTIONAL_STREAMS = [
@@ -154,6 +159,9 @@ class OperatorDisplay:
         self.stage = "準備中"
         self.detail = ""
         self.trial = 0
+        self.block = 0
+        self.rest_remaining = None
+        self.normal_detail = ""
         self.completed = 0
         self.correct = 0
         self.last_result = None
@@ -211,16 +219,18 @@ class OperatorDisplay:
             "数字集合: {}    総試行数: {}\n"
             "刺激: {:.2f} 秒    ISI: {:.2f} 秒\n"
             "ターゲット確率: {:.0f}%    取得周波数: {} Hz\n\n"
-            "現在の試行: {}/{}    完了: {}\n"
-            "課題経過時間: {} 秒\n"
+            "ブロック: {}/{}    現在の試行: {}/{}\n"
+            "完了試行: {}    セット経過: {} 秒    休憩残り: {}\n"
             "{}\n"
             "累積正答率: {}\n\n"
             "回答: 一致は右矢印 / 不一致は左矢印\n"
             "操作: SPACEで準備段階を進む / ESCで中断"
-        ).format(self.stage, self.subject, N_BACK, DIGITS, N_TRIALS,
+        ).format(self.stage, self.subject, N_BACK, DIGITS, N_TRIALS * N_BLOCKS,
                  STIMULUS_SECONDS, ISI_SECONDS, TARGET_PROBABILITY * 100,
                  self.gaze_frequency if self.gaze_frequency is not None else "未確認",
-                 self.trial, N_TRIALS, self.completed, int(elapsed), last_response, accuracy)
+                 self.block, N_BLOCKS, self.trial, N_TRIALS, self.completed, int(elapsed),
+                 "-" if self.rest_remaining is None else "{} 秒".format(self.rest_remaining),
+                 last_response, accuracy)
         text = (self.detail or self.stage, body)
         if not force and on_flip is None and text == self.last_text:
             return False
