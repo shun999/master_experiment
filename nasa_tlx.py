@@ -22,13 +22,14 @@ SCALE_KEYS = tuple(scale[0] for scale in SCALES)
 
 
 class RawTLXSession:
-    def __init__(self, path, participant_id, n_back, blocks, session_number=None, difficulty_level=None):
+    def __init__(self, path, participant_id, n_back, blocks, session_number=None, difficulty_level=None, task="nback"):
         self.path = Path(path)
         self.participant_id = participant_id
         self.n_back = n_back
         self.blocks = blocks
         self.session_number = session_number
         self.difficulty_level = difficulty_level
+        self.task = task
         self.ratings = {key: None for key in SCALE_KEYS}
         self.status = "not_started"
         self.started_us = None
@@ -66,7 +67,7 @@ class RawTLXSession:
             self.save()
 
     def save(self):
-        row = {"participant_id": self.participant_id, "task": "nback", "n_back": self.n_back,
+        row = {"participant_id": self.participant_id, "task": self.task, "n_back": self.n_back,
                "session_number": self.session_number, "difficulty_level": self.difficulty_level,
                "blocks": self.blocks, "status": self.status, "started_us": self.started_us,
                "completed_us": self.completed_us}
