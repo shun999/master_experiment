@@ -33,7 +33,7 @@ class Window:
     def __init__(self, rig, **settings):
         self.rig = rig
         self.settings = settings
-        self.size = (1280, 720)
+        self.size = settings.get('size', (1280, 720))
         self.monitorFramePeriod = 1.0 / 60
         self.refreshThreshold = 1.2 / 60
         self.frameIntervals = []
@@ -282,9 +282,15 @@ class DualScreenTests(unittest.TestCase):
             rig, task, metadata, events, trials = self.run_task(root)
         operator, participant = rig.windows
         self.assertEqual(operator.settings['screen'], 0)
+        self.assertFalse(operator.settings['fullscr'])
+        self.assertTrue(operator.settings['allowGUI'])
+        self.assertEqual(operator.size, task.OPERATOR_WINDOW_SIZE)
+        self.assertFalse(metadata['operator_fullscreen'])
+        self.assertEqual(metadata['operator_screen_pixels'], list(task.OPERATOR_WINDOW_SIZE))
         self.assertFalse(operator.settings['waitBlanking'])
         self.assertFalse(operator.settings['checkTiming'])
         self.assertTrue(participant.settings['waitBlanking'])
+        self.assertTrue(participant.settings['fullscr'])
         self.assertEqual(participant.settings['screen'], 1)
         self.assertEqual(sum(text.win is operator for text in rig.texts), 2)
         times = {event['event']: int(event['system_time_stamp_us']) / 1e6 for event in events}

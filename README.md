@@ -18,12 +18,15 @@ Windowsのディスプレイ設定を「拡張」にし、モニターを2台接
 | 設定 | 初期値・動作 |
 | --- | --- |
 | `SCREEN_INDEX` | 被験者画面は1、全画面、`waitBlanking=True` |
-| `OPERATOR_SCREEN_INDEX` | 実施者画面は0、全画面、`waitBlanking=False`、`checkTiming=False` |
+| `OPERATOR_SCREEN_INDEX` | 実施者画面は0、ウィンドウ表示、`waitBlanking=False`、`checkTiming=False` |
+| `OPERATOR_WINDOW_SIZE` | 実施者ウィンドウのサイズは960×640ピクセル |
 | `OPERATOR_REFRESH_HZ` | 課題中の実施者画面の更新上限は5Hz |
 | `SYNC_COUNTDOWN_SECONDS` | 開始・終了の各合図まで10秒 |
 | `SYNC_CUE_SECONDS` | 開始・終了の各合図を1秒間表示 |
 
 画面番号が実際の配置と異なる場合は、スクリプト先頭の設定値を変更してください。両画面はpygletバックエンドを使用します。実施者画面の日本語表示にはWindowsの「Yu Gothic」フォントを指定しています。
+
+実施者側はタイトルバー付きのウィンドウで表示し、他の計測ソフトも操作できます。描画領域を抑えるため、初期サイズを960×640ピクセルにしています。必要に応じて `OPERATOR_WINDOW_SIZE` を変更してください。メタデータの `operator_screen_pixels` には実際のウィンドウサイズ、`operator_fullscreen` には `false` を保存します。
 
 実施者画面には、協力者ID、N値、数字集合、総試行数、刺激表示時間、ISI、ターゲット確率、取得周波数、現在の段階と試行番号、完了試行数、課題経過時間を表示します。加えて、直近の完了試行の回答・正誤・反応時間と累積正答率を表示します。正答率は最初のN試行を含む完了試行を対象とし、未回答は不正解として数えます。完了試行がない場合は「未集計」と表示します。
 

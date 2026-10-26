@@ -21,6 +21,7 @@ TOBII_FREQUENCY_HZ = 1200     # Fail fast if this device cannot actually offer 1
 TOBII_SERIAL = None           # Set if more than one tracker is on the network
 SCREEN_INDEX = 1             # Participant monitor (extended desktop)
 OPERATOR_SCREEN_INDEX = 0    # Separate operator monitor
+OPERATOR_WINDOW_SIZE = (960, 640)  # Operator window size in pixels
 OPERATOR_REFRESH_HZ = 5.0    # Maximum dashboard refresh rate during the task
 SYNC_COUNTDOWN_SECONDS = 10  # Countdown before each manual marker cue
 SYNC_CUE_SECONDS = 1.0       # Fixation continues while the marker cue is visible
@@ -642,9 +643,9 @@ def main():
     try:
         # Create the participant window last, so initial keyboard focus is there.
         operator_win = visual.Window(
-            fullscr=True, screen=OPERATOR_SCREEN_INDEX, units="pix", color="black",
-            waitBlanking=False, checkTiming=False, allowGUI=False, winType="pyglet",
-            autoLog=False)
+            size=OPERATOR_WINDOW_SIZE, fullscr=False, screen=OPERATOR_SCREEN_INDEX,
+            units="pix", color="black", waitBlanking=False, checkTiming=False,
+            allowGUI=True, winType="pyglet", title="N-back Operator", autoLog=False)
         operator_size = [int(x) for x in operator_win.size]
         win = visual.Window(fullscr=True, screen=SCREEN_INDEX, units="pix",
                             color="black", waitBlanking=True, allowGUI=False,
@@ -857,6 +858,7 @@ def main():
             "participant_wait_blanking": True,
             "operator_screen_index": OPERATOR_SCREEN_INDEX,
             "operator_screen_pixels": operator_size,
+            "operator_fullscreen": False,
             "operator_wait_blanking": False,
             "operator_check_timing": False,
             "window_backend": "pyglet",
