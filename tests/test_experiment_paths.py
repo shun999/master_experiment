@@ -24,7 +24,8 @@ class OutputPathTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / 'data'
             cases = [('nback', ' afx ', 1, 3, 2), ('nback', 'AFX', 2, 1, 0),
-                     ('nback', 'DNV', 1, 1, 0), ('arithmetic', 'AFX', 1, 1, None)]
+                     ('nback', 'DNV', 1, 1, 0), ('arithmetic', 'AFX', 1, 1, None),
+                     ('pvsat', 'AFX', 3, 2, None)]
             for task, subject, session, level, n_back in cases:
                 base = create_output_prefix(root, task, subject, session, level, n_back)
                 run_dir = base.parent
@@ -51,7 +52,8 @@ class OutputPathTests(unittest.TestCase):
 
     def test_invalid_identifiers_do_not_create_directories(self):
         invalid = [('other', 'AFX', 1, 1, None), ('nback', '../AFX', 1, 1, 0),
-                   ('nback', 'AFX', 5, 1, 0), ('arithmetic', 'AFX', 1, 4, None)]
+                   ('nback', 'AFX', 5, 1, 0), ('arithmetic', 'AFX', 1, 4, None),
+                   ('pvsat', 'AFX', 1, 1, 1), ('pvsat', 'AFX', 4, 1, None)]
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / 'results'
             for args in invalid:
@@ -101,6 +103,9 @@ assert task.COUNTERBALANCE_CSV == module.TASK_PATH.parent / 'counterbalance.csv'
 from tests.test_arithmetic_experiment import ArithmeticRig
 other = ArithmeticRig().load_arithmetic(sys.argv[3])
 assert other.COUNTERBALANCE_CSV == task.COUNTERBALANCE_CSV
+from tests.test_pvsat_experiment import PvsatRig
+third = PvsatRig().load_pvsat(sys.argv[3])
+assert third.COUNTERBALANCE_CSV == task.COUNTERBALANCE_CSV
 '''
         with tempfile.TemporaryDirectory() as directory:
             env = os.environ.copy()

@@ -13,7 +13,7 @@ def create_output_prefix(output_root, task, participant_id, session_number,
     Reserve the run directory exclusively, adding a suffix on a timestamp
     collision. Call only after assignment/config validation and design creation.
     """
-    if task not in ("nback", "arithmetic"):
+    if task not in ("nback", "arithmetic", "pvsat"):
         raise ValueError("Unknown experiment task")
     participant_id = normalize_participant_id(participant_id)
     limit = 4 if task == "nback" else 3
@@ -23,8 +23,8 @@ def create_output_prefix(output_root, task, participant_id, session_number,
         raise ValueError("Invalid difficulty level")
     if task == "nback" and (type(n_back) is not int or not 0 <= n_back <= 3):
         raise ValueError("N-back requires an N value from 0 to 3")
-    if task == "arithmetic" and n_back is not None:
-        raise ValueError("Arithmetic does not use an N value")
+    if task != "nback" and n_back is not None:
+        raise ValueError("Only N-back uses an N value")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     session_dir = Path(output_root) / task / participant_id / "session_{:02d}".format(session_number)

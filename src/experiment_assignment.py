@@ -40,6 +40,16 @@ class ArithmeticAssignment(NamedTuple):
         return self.difficulty_level
 
 
+class PvsatAssignment(NamedTuple):
+    participant_id: str
+    session_number: int
+    difficulty_level: int
+
+    @property
+    def column(self):
+        return "pvsat_{}".format(self.session_number)
+
+
 def normalize_participant_id(value):
     if not isinstance(value, str):
         raise ValueError("被験者IDは英字3文字で入力してください。")
@@ -55,6 +65,10 @@ def read_nback_table(csv_path):
 
 def read_arithmetic_table(csv_path):
     return _read_task_table(csv_path, "arithmetic", 3, "暗算")
+
+
+def read_pvsat_table(csv_path):
+    return _read_task_table(csv_path, "pvsat", 3, "PVSAT")
 
 
 def _read_task_table(csv_path, task, count, label):
@@ -96,6 +110,10 @@ def select_arithmetic_assignment(table, participant_id, session_number):
     return ArithmeticAssignment(*_select_level(table, participant_id, session_number, 3, "暗算"))
 
 
+def select_pvsat_assignment(table, participant_id, session_number):
+    return PvsatAssignment(*_select_level(table, participant_id, session_number, 3, "PVSAT"))
+
+
 def _select_level(table, participant_id, session_number, count, label):
     participant_id = normalize_participant_id(participant_id)
     if isinstance(session_number, str):
@@ -119,6 +137,10 @@ def load_arithmetic_assignment(csv_path, participant_id, session_number):
     return select_arithmetic_assignment(read_arithmetic_table(csv_path), participant_id, session_number)
 
 
+def load_pvsat_assignment(csv_path, participant_id, session_number):
+    return select_pvsat_assignment(read_pvsat_table(csv_path), participant_id, session_number)
+
+
 def prompt_nback_assignment(csv_path):
     """Return an assignment or None; called before windows/recording/files."""
     return _prompt_assignment(csv_path, "N-back", 4, 6, read_nback_table, select_nback_assignment)
@@ -126,6 +148,10 @@ def prompt_nback_assignment(csv_path):
 
 def prompt_arithmetic_assignment(csv_path, blocks=3):
     return _prompt_assignment(csv_path, "暗算", 3, blocks, read_arithmetic_table, select_arithmetic_assignment)
+
+
+def prompt_pvsat_assignment(csv_path, blocks=3):
+    return _prompt_assignment(csv_path, "PVSAT", 3, blocks, read_pvsat_table, select_pvsat_assignment)
 
 
 def _prompt_assignment(csv_path, label, count, blocks, read_table, select_assignment):
