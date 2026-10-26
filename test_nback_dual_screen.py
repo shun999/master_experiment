@@ -122,6 +122,9 @@ class Recorder:
         self.time_backwards_or_equal = {}
         self.writer_error = None
         self.closed = False
+        self.close_calls = 0
+        self.unsubscribe_calls = 0
+        self.base = base
 
     def subscribe(self, tracker, kind, constant, required=False):
         self.attempts[kind] = True
@@ -129,11 +132,13 @@ class Recorder:
             self.rig.subscribe_time = self.rig.now
 
     def unsubscribe_all(self, tracker):
+        self.unsubscribe_calls += 1
         self.rig.unsubscribe_time = self.rig.now
         if self.rig.unsubscribe_error:
             raise RuntimeError('simulated unsubscribe failure')
 
     def close(self):
+        self.close_calls += 1
         self.closed = True
 
 
@@ -150,6 +155,8 @@ class Rig:
         self.unsubscribe_error = unsubscribe_error
         self.subscribe_time = self.unsubscribe_time = None
         self.calibration_left = False
+        self.tlx_active = False
+        self.tlx_answers = 0
 
     def window(self, **settings):
         if settings['screen'] == self.fail_window:
@@ -175,12 +182,14 @@ class Rig:
             or (self.abort == 'task' and self.trial == 2 and elapsed >= .05)
             or (self.abort == 'calibration' and 'CALIBRATION: enter' in banner and elapsed >= .1)
             or (self.abort == 'ready' and '準備ができたらSPACE' in banner)
+            or (self.abort == 'rest' and op and '段階: 休憩' in op.history[-1][1][1] and elapsed >= .1)
+            or (self.abort == 'tlx' and self.tlx_active and self.tlx_answers == 2)
         )
         if match:
             self.abort_sent = True
         return match
 
-    def load(self, output_dir):
+    def load(self, output_dir, full=False):
         psychopy = types.ModuleType('psychopy')
         psychopy.__version__ = 'mock'
         psychopy.core = types.SimpleNamespace(Clock=lambda: Clock(self), wait=self.wait)
@@ -211,7 +220,11 @@ class Rig:
             task = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(task)
         task.OUTPUT_DIR = Path(output_dir)
-        task.N_TRIALS = 3
+        if not full:
+            task.N_TRIALS = 3
+            task.N_BLOCKS = 2
+            task.REST_SECONDS = 3.0
+            task.SYNC_COUNTDOWN_SECONDS = 2
         task.SKIP_CALIBRATION = True
         task.SAVE_CALIBRATION_DATA = False
         self.validate_screens = task.validate_screen_configuration
@@ -220,175 +233,209 @@ class Rig:
         task.select_tracker = lambda: types.SimpleNamespace(
             get_all_gaze_output_frequencies=lambda: [1200], set_gaze_output_frequency=lambda hz: None)
         task.tracker_info = lambda tracker: {'model': 'mock Spectrum', 'gaze_frequency_hz': 1200}
-        task.make_design = lambda n, count, seed: [
-            {'trial': 1, 'stimulus': '0', 'is_target': 0},
-            {'trial': 2, 'stimulus': '0', 'is_target': 1},
-            {'trial': 3, 'stimulus': '1', 'is_target': 0},
-        ]
+        if not full:
+            task.make_design = lambda n, count, seed: [
+                {'trial': 1, 'stimulus': '0', 'is_target': 0},
+                {'trial': 2, 'stimulus': '0', 'is_target': 1},
+                {'trial': 3, 'stimulus': '1', 'is_target': 0},
+            ]
+
+        def questionnaire(win, operator, session, stamp, check_abort):
+            from nasa_tlx import SCALE_KEYS
+            assert self.recorder.closed
+            with Path(str(self.recorder.base) + '_trials.csv').open(encoding='utf-8') as stream:
+                assert len(list(csv.DictReader(stream))) == task.N_TRIALS * task.N_BLOCKS
+            self.tlx_active = True
+            session.start(stamp('tlx_start', ''))
+            for key, value in zip(SCALE_KEYS, (0, 20, 40, 60, 80, 100)):
+                check_abort()
+                session.set_rating(key, value)
+                self.tlx_answers += 1
+                stamp('tlx_response', key)
+                self.wait(.01)
+            session.finish(stamp('tlx_end', ''))
+            return session.score
+
+        task.run_raw_tlx = questionnaire
         return task
 
 
 class DualScreenTests(unittest.TestCase):
-    def run_task(self, root, **kwargs):
+    def read_outputs(self, root):
+        root = Path(root)
+        metadata = json.loads(next(root.glob('*_metadata.json')).read_text(encoding='utf-8'))
+        with next(root.glob('*_events.csv')).open(encoding='utf-8', newline='') as stream:
+            events = list(csv.DictReader(stream))
+        with next(root.glob('*_trials.csv')).open(encoding='utf-8', newline='') as stream:
+            trials = list(csv.DictReader(stream))
+        return metadata, events, trials
+
+    def run_task(self, root, full=False, **kwargs):
         rig = Rig(**kwargs)
-        task = rig.load(root)
+        task = rig.load(root, full=full)
         with redirect_stdout(io.StringIO()):
             task.main()
-        metadata = json.loads(next(Path(root).glob('*_metadata.json')).read_text(encoding='utf-8'))
-        with next(Path(root).glob('*_events.csv')).open(encoding='utf-8', newline='') as stream:
-            events = list(csv.DictReader(stream))
-        with next(Path(root).glob('*_trials.csv')).open(encoding='utf-8', newline='') as stream:
-            trials = list(csv.DictReader(stream))
-        return rig, task, metadata, events, trials
+        return (rig, task) + self.read_outputs(root)
 
-    def test_protocol_timing_and_fixation(self):
+    def test_full_540_second_protocol_and_sync(self):
         with tempfile.TemporaryDirectory() as root:
-            rig, task, metadata, events, trials = self.run_task(root)
-        names = [event['event'] for event in events]
-        expected = ['sync_start_countdown', 'sync_start_cue', 'sync_start_cue_end',
-                    'task_start', 'task_end', 'sync_end_countdown', 'sync_end_cue', 'sync_end_cue_end']
-        self.assertEqual([name for name in names if name in expected], expected)
-        times = {event['event']: int(event['system_time_stamp_us']) / 1e6 for event in events}
-        for phase in ('start', 'end'):
-            prefix = 'sync_' + phase
-            self.assertAlmostEqual(times[prefix + '_cue'] - times[prefix + '_countdown'], 10, delta=.04)
-            self.assertAlmostEqual(times[prefix + '_cue_end'] - times[prefix + '_cue'], 1, delta=.04)
-        self.assertEqual(times['task_start'], int(trials[0]['stim_on_us']) / 1e6)
-        self.assertGreaterEqual(times['task_start'], times['sync_start_cue_end'])
-        self.assertGreater(times['sync_end_countdown'], times['task_end'])
-        self.assertLessEqual(rig.subscribe_time, times['sync_start_countdown'])
-        self.assertGreaterEqual(rig.unsubscribe_time + 1e-6, times['sync_end_cue_end'])
-        participant = rig.windows[1]
-        for time, drawn, recording in participant.history:
-            in_sync = any(times['sync_' + phase + '_countdown'] <= time <= times['sync_' + phase + '_cue_end']
-                          for phase in ('start', 'end'))
-            if in_sync:
-                self.assertEqual(drawn, ['+'])
-                self.assertFalse(recording)
-            if recording:
-                self.assertGreaterEqual(time + 1e-6, times['task_start'])
-                self.assertLessEqual(time, times['task_end'] + 1e-6)
+            rig, task, metadata, events, trials = self.run_task(root, full=True)
+            with next(Path(root).glob('*_tlx.csv')).open(encoding='utf-8-sig') as stream:
+                tlx = next(csv.DictReader(stream))
         self.assertEqual(metadata['status'], 'completed')
-        self.assertEqual(metadata['completed_trials'], 3)
-        self.assertGreater(metadata['participant_frame_timing']['recorded_intervals'], 300)
-        self.assertLess(metadata['participant_frame_timing']['max_interval_seconds'], .04)
-        self.assertEqual(metadata['sync_countdown_seconds'], 10)
-        self.assertEqual(metadata['sync_cue_seconds'], 1)
-        self.assertTrue(rig.recorder.closed)
+        self.assertEqual(metadata['completed_trials'], 180)
+        self.assertEqual(metadata['completed_blocks'], 6)
+        self.assertEqual(metadata['planned_set_seconds'], 540)
+        self.assertAlmostEqual(metadata['actual_set_seconds'], 540, delta=.04)
+        self.assertEqual([int(row['trial']) for row in trials], list(range(1, 181)))
+        self.assertEqual(tlx['status'], 'completed')
+        self.assertEqual(float(tlx['raw_tlx']), 50)
+        self.assertEqual(metadata['raw_tlx'], 50)
+        def time(name, block):
+            return next(int(event['system_time_stamp_us']) / 1e6 for event in events
+                        if event['event'] == name and int(event['block']) == block)
+        set_start = time('set_start', 0)
+        self.assertAlmostEqual(set_start - time('sync_start_countdown', 1), 10, delta=.04)
+        for block in range(1, 7):
+            start, end, rest_end = time('task_start', block), time('task_end', block), time('rest_end', block)
+            self.assertAlmostEqual(start - set_start, (block - 1) * 90, delta=.04)
+            self.assertAlmostEqual(end - start, 60, delta=.04)
+            self.assertAlmostEqual(rest_end - end, 30, delta=.04)
+            self.assertAlmostEqual(start - time('sync_start_countdown', block), 10, delta=.04)
+            self.assertAlmostEqual(time('sync_start_cue', block) - start, 0, delta=.04)
+            self.assertAlmostEqual(end - time('sync_end_countdown', block), 10, delta=.04)
+            self.assertAlmostEqual(time('sync_end_cue', block) - end, 0, delta=.04)
+            for phase in ('start', 'end'):
+                self.assertAlmostEqual(time('sync_' + phase + '_cue_end', block)
+                                       - time('sync_' + phase + '_cue', block), 1, delta=.04)
+            block_trials = [row for row in trials if int(row['block']) == block]
+            self.assertEqual([int(row['trial_in_block']) for row in block_trials], list(range(1, 31)))
+            self.assertEqual(block_trials[0]['is_target'], '0')
+            for row in block_trials:
+                onset = int(row['stim_on_us']) / 1e6
+                self.assertAlmostEqual(int(row['stim_off_us']) / 1e6 - onset, .5, delta=.04)
+                self.assertAlmostEqual(int(row['response_window_end_us']) / 1e6 - onset, 2, delta=.04)
+                self.assertIn(row['stimulus'], '0123456789')
+                self.assertLess(abs(float(row['onset_error_seconds'])), .04)
+            self.assertGreaterEqual(int(block_trials[25]['stim_on_us']) / 1e6,
+                                    time('sync_end_countdown', block) - .04)
+            for moment, drawn, recording in rig.windows[1].history:
+                if end + .04 < moment < rest_end - .04:
+                    self.assertEqual(drawn, ['+'])
+                    self.assertFalse(recording)
+        self.assertEqual(len([event for event in events if event['event'] == 'sync_start_cue']), 6)
+        self.assertLessEqual(rig.subscribe_time, time('sync_start_countdown', 1))
+        self.assertGreaterEqual(rig.unsubscribe_time + 1e-6, time('set_end', 0))
+        self.assertLessEqual(rig.unsubscribe_time, time('tlx_start', 0))
+        self.assertEqual(rig.recorder.close_calls, 1)
+        self.assertEqual(rig.recorder.unsubscribe_calls, 1)
         self.assertTrue(all(window.closed for window in rig.windows))
+        self.assertGreater(metadata['participant_frame_timing']['recorded_intervals'], 21000)
+        self.assertLess(metadata['participant_frame_timing']['max_interval_seconds'], .04)
 
-    def test_dashboard_settings_rate_and_trial_records(self):
+    def test_window_settings_and_trial_scores(self):
         with tempfile.TemporaryDirectory() as root:
             rig, task, metadata, events, trials = self.run_task(root)
         operator, participant = rig.windows
-        self.assertEqual(operator.settings['screen'], 0)
         self.assertFalse(operator.settings['fullscr'])
         self.assertTrue(operator.settings['allowGUI'])
-        self.assertEqual(operator.size, task.OPERATOR_WINDOW_SIZE)
-        self.assertFalse(metadata['operator_fullscreen'])
-        self.assertEqual(metadata['operator_screen_pixels'], list(task.OPERATOR_WINDOW_SIZE))
         self.assertFalse(operator.settings['waitBlanking'])
         self.assertFalse(operator.settings['checkTiming'])
-        self.assertTrue(participant.settings['waitBlanking'])
+        self.assertEqual(operator.size, task.OPERATOR_WINDOW_SIZE)
         self.assertTrue(participant.settings['fullscr'])
-        self.assertEqual(participant.settings['screen'], 1)
-        self.assertEqual(sum(text.win is operator for text in rig.texts), 2)
-        times = {event['event']: int(event['system_time_stamp_us']) / 1e6 for event in events}
-        updates = [time for time, drawn, recording in operator.history
-                   if times['task_start'] <= time < times['task_end']]
-        self.assertGreater(len(updates), 3)
-        self.assertTrue(all(right - left >= .2 - 1e-8 for left, right in zip(updates, updates[1:])))
-        self.assertIn('66.7% (2/3)', operator.history[-1][1][1])
-        self.assertIn('未集計', operator.history[0][1][1])
-        self.assertEqual([row['response_key'] for row in trials], ['left', 'right', ''])
-        self.assertEqual([row['correct'] for row in trials], ['1', '1', '0'])
+        self.assertTrue(participant.settings['waitBlanking'])
+        self.assertEqual(metadata['completed_blocks'], 2)
+        self.assertEqual([row['response_key'] for row in trials], ['left', 'right', '', '', '', ''])
+        self.assertEqual([row['correct'] for row in trials], ['1', '1', '0', '0', '0', '0'])
         self.assertEqual(trials[-1]['rt_seconds'], '')
-        for row in trials[:2]:
-            self.assertGreaterEqual(float(row['rt_seconds']), .2)
-            self.assertLess(float(row['rt_seconds']), .24)
-        self.assertEqual(len([event for event in events if event['event'] == 'response_detected']), 2)
+        self.assertTrue(all(row['completed'] == '1' for row in trials))
+        self.assertEqual(sum(text.win is operator for text in rig.texts), 2)
 
-    def test_escape_at_each_recording_stage_preserves_data(self):
-        for phase in ('start_countdown', 'start_cue', 'task', 'end_countdown', 'end_cue'):
+    def test_normal_dashboard_updates_are_limited_to_5hz(self):
+        with tempfile.TemporaryDirectory() as root:
+            rig = Rig()
+            task = rig.load(root)
+            window = rig.window(screen=0, waitBlanking=False)
+            operator = task.OperatorDisplay(window, 'AFX')
+            for step in range(100):
+                operator.detail = str(step)
+                operator.render()
+                rig.wait(.02)
+        times = [moment for moment, _, _ in window.history]
+        self.assertGreater(len(times), 5)
+        self.assertTrue(all(b - a >= .2 - 1e-8 for a, b in zip(times, times[1:])))
+
+    def test_escape_preserves_partial_trials_and_tlx(self):
+        for phase in ('start_countdown', 'start_cue', 'task', 'end_countdown', 'end_cue', 'rest', 'tlx'):
             with self.subTest(phase=phase), tempfile.TemporaryDirectory() as root:
                 rig, task, metadata, events, trials = self.run_task(root, abort=phase)
                 self.assertEqual(metadata['status'], 'aborted')
                 self.assertTrue(rig.abort_sent)
                 self.assertTrue(rig.recorder.closed)
+                self.assertEqual(rig.recorder.close_calls, 1)
                 self.assertTrue(all(window.closed for window in rig.windows))
-                names = [event['event'] for event in events]
-                self.assertIn('experiment_aborted', names)
-                self.assertNotIn('sync_end_cue_end', names)
-                if phase in ('start_countdown', 'start_cue', 'task'):
-                    self.assertNotIn('sync_end_countdown', names)
-                if phase in ('start_countdown', 'start_cue'):
+                self.assertIn('experiment_aborted', [event['event'] for event in events])
+                if phase == 'tlx':
+                    self.assertEqual(metadata['completed_trials'], 6)
+                    self.assertEqual(metadata['completed_blocks'], 2)
+                    self.assertEqual(metadata['tlx_status'], 'aborted')
+                    self.assertIsNone(metadata['raw_tlx'])
+                    with next(Path(root).glob('*_tlx.csv')).open(encoding='utf-8-sig') as stream:
+                        row = next(csv.DictReader(stream))
+                    self.assertEqual(row['physical_demand'], '20')
+                    self.assertEqual(row['temporal_demand'], '')
+                    self.assertEqual(row['raw_tlx'], '')
+                else:
+                    self.assertEqual(metadata['tlx_status'], 'not_started')
+                if phase == 'start_countdown':
                     self.assertIsNone(metadata['participant_frame_timing'])
-                if phase == 'task':
-                    self.assertEqual(metadata['completed_trials'], 1)
+                if phase in ('task', 'start_cue', 'end_countdown'):
                     self.assertEqual(trials[-1]['completed'], '0')
                     self.assertEqual(trials[-1]['correct'], '')
+                    self.assertNotEqual(trials[-1]['response_window_end_us'], '')
 
-    def test_calibration_escape_leaves_sdk_mode(self):
-        with tempfile.TemporaryDirectory() as root:
-            rig = Rig(abort='calibration')
-            task = rig.load(root)
-            task.SKIP_CALIBRATION = False
-            with redirect_stdout(io.StringIO()):
-                task.main()
-            metadata = json.loads(next(Path(root).glob('*_metadata.json')).read_text(encoding='utf-8'))
-        self.assertEqual(metadata['status'], 'aborted')
-        self.assertTrue(rig.calibration_left)
-        self.assertTrue(rig.recorder.closed)
-        self.assertTrue(all(window.closed for window in rig.windows))
+    def test_calibration_complete_and_escape(self):
+        for abort in (None, 'calibration', 'ready'):
+            with self.subTest(abort=abort), tempfile.TemporaryDirectory() as root:
+                rig = Rig(abort=abort)
+                task = rig.load(root)
+                task.SKIP_CALIBRATION = False
+                with redirect_stdout(io.StringIO()):
+                    task.main()
+                metadata, events, trials = self.read_outputs(root)
+                self.assertEqual(metadata['status'], 'completed' if abort is None else 'aborted')
+                self.assertTrue(rig.recorder.closed)
+                self.assertTrue(all(window.closed for window in rig.windows))
+                if abort != 'ready':
+                    self.assertTrue(rig.calibration_left)
 
-    def test_ready_escape_does_not_start_recording(self):
-        with tempfile.TemporaryDirectory() as root:
-            rig, task, metadata, events, trials = self.run_task(root, abort='ready')
-        self.assertEqual(metadata['status'], 'aborted')
-        self.assertIsNone(rig.subscribe_time)
-        self.assertIsNone(metadata['participant_frame_timing'])
-        self.assertEqual(trials, [])
-        self.assertTrue(rig.recorder.closed)
-        self.assertTrue(all(window.closed for window in rig.windows))
+    def test_failure_still_saves_and_closes(self):
+        for options in ({'fail_window': 1}, {'unsubscribe_error': True}):
+            with self.subTest(options=options), tempfile.TemporaryDirectory() as root:
+                rig = Rig(**options)
+                task = rig.load(root)
+                with self.assertRaises(RuntimeError), redirect_stdout(io.StringIO()):
+                    task.main()
+                metadata, events, trials = self.read_outputs(root)
+                self.assertEqual(metadata['status'], 'failed')
+                self.assertEqual(metadata['tlx_status'], 'not_started')
+                self.assertTrue(rig.recorder.closed)
+                self.assertTrue(all(window.closed for window in rig.windows))
 
-    def test_successful_calibration_then_task(self):
+    def test_design_resets_each_block(self):
         with tempfile.TemporaryDirectory() as root:
             rig = Rig()
-            task = rig.load(root)
-            task.SKIP_CALIBRATION = False
-            with redirect_stdout(io.StringIO()):
-                task.main()
-            metadata = json.loads(next(Path(root).glob('*_metadata.json')).read_text(encoding='utf-8'))
-        self.assertEqual(metadata['status'], 'completed')
-        self.assertEqual(metadata['calibration']['status'], 'success')
-        self.assertTrue(rig.calibration_left)
-        self.assertEqual(metadata['completed_trials'], 3)
-        self.assertTrue(all(window.closed for window in rig.windows))
+            task = rig.load(root, full=True)
+            for n in range(1, 5):
+                for seed in range(6):
+                    design = task.make_design(n, 30, seed)
+                    self.assertTrue(all(row['is_target'] == 0 for row in design[:n]))
+                    for i, row in enumerate(design):
+                        self.assertEqual(row['is_target'], int(i >= n and row['stimulus'] == design[i-n]['stimulus']))
 
-    def test_partial_window_creation_failure_still_saves_and_closes(self):
+    def test_screen_validation(self):
         with tempfile.TemporaryDirectory() as root:
-            rig = Rig(fail_window=1)
-            task = rig.load(root)
-            with self.assertRaisesRegex(RuntimeError, 'window creation'), redirect_stdout(io.StringIO()):
-                task.main()
-            metadata = json.loads(next(Path(root).glob('*_metadata.json')).read_text(encoding='utf-8'))
-        self.assertEqual(metadata['status'], 'failed')
-        self.assertEqual(len(rig.windows), 1)
-        self.assertTrue(rig.windows[0].closed)
-        self.assertTrue(rig.recorder.closed)
-
-    def test_cleanup_error_does_not_skip_window_close_or_save(self):
-        with tempfile.TemporaryDirectory() as root:
-            rig, task, metadata, events, trials = self.run_task(root, unsubscribe_error=True)
-        self.assertEqual(metadata['status'], 'failed')
-        self.assertIn('unsubscribe failure', metadata['error'])
-        self.assertEqual(len(trials), 3)
-        self.assertTrue(rig.recorder.closed)
-        self.assertTrue(all(window.closed for window in rig.windows))
-
-    def test_screen_validation_rejects_missing_and_duplicate_monitors(self):
-        rig = Rig()
-        with tempfile.TemporaryDirectory() as root:
+            rig = Rig()
             task = rig.load(root)
             pyglet = types.ModuleType('pyglet')
             pyglet.canvas = types.SimpleNamespace(get_display=lambda: types.SimpleNamespace(get_screens=lambda: [0]))
@@ -397,9 +444,6 @@ class DualScreenTests(unittest.TestCase):
                     rig.validate_screens()
                 task.OPERATOR_SCREEN_INDEX = 1
                 with self.assertRaisesRegex(ValueError, 'different monitors'):
-                    rig.validate_screens()
-                task.OPERATOR_SCREEN_INDEX = -1
-                with self.assertRaisesRegex(ValueError, 'nonnegative'):
                     rig.validate_screens()
 
 

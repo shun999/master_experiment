@@ -92,6 +92,8 @@ python tobii_nback_1200hz_features.py --gaze "C:\\Research\\nback_data\\P001_202
 
 試行情報 `*_trials.csv` があれば `trial_index`（試行番号）、`trial_phase`（`stimulus` / `isi`）、`time_since_trial_on_ms` を追加します。試行の正誤や反応時間は**モデルの入力特徴量として混ぜません**。ラベルとして使用するときは、別の `*_trials.csv` と紐付けてください。データの取得時刻にはPC側の `system_time_stamp_us` を用います。
 
+6ブロック形式では `response_window_end_us` を試行区間の終了に使います。30秒休憩と休憩中の同期カウントダウンの視線行は保持しますが、`trial_index`・`trial_phase`・`time_since_trial_on_ms` は空欄です。従来CSVでは次試行の開始、刺激終了＋ISI、対応する課題終了のうち最も早い時刻で試行を閉じます。各ブロックの所属は試行CSVの `block` とセット内で一意な `trial` を使って紐付けてください。
+
 機械学習入力の例：
 
 ```python

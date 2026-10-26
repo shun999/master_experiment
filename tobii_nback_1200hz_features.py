@@ -264,12 +264,15 @@ class TrialLabels:
         event_csv = Path(str(base) + "_events.csv")
         if not trials_csv.exists():
             return
-        ev_end = None
+        ev_ends = []
+        response_ends = []
         if event_csv.exists():
             with event_csv.open("r", encoding="utf-8-sig", newline="") as f:
                 for ev in csv.DictReader(f):
                     if ev.get("event") == "task_end":
-                        ev_end = integer(ev.get("system_time_stamp_us"))
+                        end = integer(ev.get("system_time_stamp_us"))
+                        if end is not None:
+                            ev_ends.append(end)
         try:
             with trials_csv.open("r", encoding="utf-8-sig", newline="") as f:
                 for r in csv.DictReader(f):
@@ -280,23 +283,31 @@ class TrialLabels:
                     self.starts.append(start)
                     self.stim_ends.append(offset)
                     self.ids.append(r.get("trial", ""))
+                    response_ends.append(integer(r.get("response_window_end_us")))
             if not self.starts:
                 return
             order = sorted(range(len(self.starts)), key=self.starts.__getitem__)
             self.starts = [self.starts[i] for i in order]
             self.stim_ends = [self.stim_ends[i] for i in order]
             self.ids = [self.ids[i] for i in order]
+            response_ends = [response_ends[i] for i in order]
             isi = number(metadata.get("isi_seconds"))
             isi_us = int(isi * 1000000) if finite(isi) else 0
             for i, start in enumerate(self.starts):
+                candidates = []
                 if i < len(self.starts) - 1:
-                    self.ends.append(self.starts[i + 1])
-                elif ev_end is not None and ev_end > start:
-                    self.ends.append(ev_end)
-                elif self.stim_ends[i] is not None:
-                    self.ends.append(self.stim_ends[i] + isi_us)
+                    candidates.append(self.starts[i + 1])
+                if response_ends[i] is not None:
+                    # Explicit response windows keep rests and sync outside trials,
+                    # including a partially completed trial on ESC.
+                    candidates.append(max(start, response_ends[i]))
                 else:
-                    self.ends.append(start)
+                    if self.stim_ends[i] is not None:
+                        candidates.append(self.stim_ends[i] + isi_us)
+                    later_task_ends = [end for end in ev_ends if end > start]
+                    if later_task_ends:
+                        candidates.append(min(later_task_ends))
+                self.ends.append(min(candidates) if candidates else start)
             self.available = True
         except (OSError, ValueError) as exc:
             print("WARNING: trial metadata could not be read:", exc)

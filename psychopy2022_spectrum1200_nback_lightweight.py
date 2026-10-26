@@ -247,49 +247,193 @@ class OperatorDisplay:
         return True
 
 
-def run_sync_phase(win, cross, kb, operator, stamp, phase):
-    """Keep participant fixation visible throughout countdown and manual cue."""
-    label = "開始" if phase == "start" else "終了"
-    prefix = "sync_" + phase
-    operator.stage = label + "同期"
-    operator.detail = "{}マーカーまで {} 秒".format(label, SYNC_COUNTDOWN_SECONDS)
+class BlockSyncDisplay:
+    """Nonblocking cues on the operator display, sharing the set's clock."""
+
+    def __init__(self, operator, stamp, clock):
+        self.operator, self.stamp, self.clock = operator, stamp, clock
+        self.countdown = None
+        self.cue = None
+        self.schedule = []
+        active = N_TRIALS * (STIMULUS_SECONDS + ISI_SECONDS)
+        for block in range(1, N_BLOCKS + 1):
+            start = (block - 1) * (active + REST_SECONDS)
+            for phase, boundary in (("start", start), ("end", start + active)):
+                if block != 1 or phase != "start":
+                    self.schedule.append((boundary - SYNC_COUNTDOWN_SECONDS, block, phase, "countdown", boundary))
+                self.schedule.append((boundary, block, phase, "cue", boundary))
+                self.schedule.append((boundary + SYNC_CUE_SECONDS, block, phase, "cue_end", boundary))
+        self.schedule.sort()
+
+    def detail(self, now):
+        if self.cue:
+            block, phase = self.cue
+            return "ブロック{} {}マーカーを入力".format(block, "開始" if phase == "start" else "終了")
+        if self.countdown:
+            block, phase, deadline = self.countdown
+            return "ブロック{} {}マーカーまで {} 秒".format(
+                block, "開始" if phase == "start" else "終了", max(1, int(math.ceil(deadline - now))))
+        return self.operator.normal_detail
+
+    def update(self):
+        now = self.clock.getTime()
+        while self.schedule and self.schedule[0][0] <= now + 1e-7:
+            _, block, phase, kind, boundary = self.schedule.pop(0)
+            if kind == "countdown":
+                self.countdown, self.cue = (block, phase, boundary), None
+            elif kind == "cue":
+                self.countdown, self.cue = None, (block, phase)
+            else:
+                self.cue = None
+            self.operator.detail = self.detail(now)
+            name = "sync_{}_{}".format(phase, kind)
+            self.operator.render(force=True, on_flip=lambda name=name, block=block:
+                                 self.stamp(name, 0, "", block=block))
+            now = self.clock.getTime()
+        text = self.detail(now)
+        force = self.countdown is not None and text != self.operator.detail
+        self.operator.detail = text
+        self.operator.render(force=force)
+
+    def prepare(self, win, cross, kb):
+        timer = core.Clock()
+        self.operator.stage = "開始同期"
+        self.operator.detail = "ブロック1 開始マーカーまで {} 秒".format(SYNC_COUNTDOWN_SECONDS)
+
+        def onset():
+            timer.reset()
+            self.stamp("sync_start_countdown", 0, "", block=1)
+
+        self.operator.render(force=True, on_flip=onset)
+        tolerance = (win.monitorFramePeriod or 1 / 60) * .5
+        while timer.getTime() < SYNC_COUNTDOWN_SECONDS - tolerance:
+            check_escape(kb)
+            remaining = max(1, int(math.ceil(SYNC_COUNTDOWN_SECONDS - timer.getTime())))
+            detail = "ブロック1 開始マーカーまで {} 秒".format(remaining)
+            if detail != self.operator.detail:
+                self.operator.detail = detail
+                self.operator.render(force=True)
+            cross.draw()
+            win.flip()
+
+
+def run_nback_blocks(win, cross, digit, kb, operator, designs, trials, protocol,
+                     stamp, poll_keys, checkpoint):
+    """Use absolute set deadlines so rest/cues do not accumulate extra time."""
+    clock = core.Clock()
+    sync = BlockSyncDisplay(operator, stamp, clock)
+    sync.prepare(win, cross, kb)
+    active = N_TRIALS * (STIMULUS_SECONDS + ISI_SECONDS)
+    block_duration = active + REST_SECONDS
+    tolerance = (win.monitorFramePeriod or 1 / 60) * .5
+
+    def wait_until(deadline, stimulus, record=None):
+        while clock.getTime() < deadline - tolerance:
+            if record is None:
+                check_escape(kb)
+            else:
+                poll_keys(kb, record)
+            if operator.stage == "休憩":
+                operator.rest_remaining = max(0, int(math.ceil(deadline - clock.getTime())))
+            stimulus.draw()
+            win.flip()
+            sync.update()
+        if record is not None:
+            poll_keys(kb, record)
+        else:
+            check_escape(kb)
+
+    def finish_trial(record):
+        stamp("response_window_end", record["trial"], record["stimulus"],
+              record, "response_window_end_us")
+        record["correct"] = int(record["response_key"] == ("right" if record["is_target"] else "left"))
+        record["completed"] = 1
+        operator.complete_trial(record)
+
+    def finish_rest(summary):
+        summary["rest_end_us"] = stamp("rest_end", 0, "", block=summary["block"])
+        summary["completed"] = True
+        protocol["completed_blocks"] += 1
+
+    previous_summary = None
+    for block, design in enumerate(designs, 1):
+        start = (block - 1) * block_duration
+        summary = {"block": block, "planned_task_start_seconds": start,
+                   "task_start_us": None, "task_end_us": None, "rest_start_us": None,
+                   "rest_end_us": None, "completed": False, "frame_timing": None}
+        protocol["blocks"].append(summary)
+        operator.block, operator.trial = block, 0
+        operator.stage, operator.rest_remaining = "課題実行中", None
+        win.frameIntervals, win.nDroppedFrames = [], 0
+        win.recordFrameIntervals = True
+        previous_record = None
+        for local_trial, plan in enumerate(design, 1):
+            onset = start + (local_trial - 1) * (STIMULUS_SECONDS + ISI_SECONDS)
+            record = dict(plan)
+            record.update(trial=(block - 1) * N_TRIALS + local_trial, block=block,
+                          trial_in_block=local_trial, response_key="", correct="", rt_seconds="",
+                          stim_on_us="", stim_off_us="", response_detected_us="",
+                          response_window_end_us="", planned_onset_seconds=onset,
+                          onset_error_seconds="", completed=0)
+            trials.append(record)
+            if previous_record is not None:
+                win.callOnFlip(finish_trial, previous_record)
+            if local_trial == 1:
+                if block == 1:
+                    win.callOnFlip(clock.reset)
+                    win.callOnFlip(operator.start_task)
+                    win.callOnFlip(lambda: protocol.update(set_start_us=stamp("set_start", 0, "")))
+                else:
+                    win.callOnFlip(finish_rest, previous_summary)
+                win.callOnFlip(lambda summary=summary, block=block, start=start: summary.update(
+                    task_start_us=stamp("task_start", 0, "", block=block),
+                    onset_error_seconds=clock.getTime() - start))
+            operator.trial = local_trial
+            operator.normal_detail = "数字を提示中"
+            digit.text = record["stimulus"]
+            digit.draw()
+            win.callOnFlip(kb.clock.reset)
+            win.callOnFlip(kb.clearEvents)
+            win.callOnFlip(stamp, "stim_on", record["trial"], record["stimulus"], record, "stim_on_us")
+            win.callOnFlip(lambda record=record, onset=onset: record.update(onset_error_seconds=clock.getTime() - onset))
+            win.flip()
+            sync.update()
+            if local_trial == 1 and block > 1:
+                checkpoint()
+            wait_until(onset + STIMULUS_SECONDS, digit, record)
+            operator.normal_detail = "注視点・回答受付中"
+            cross.draw()
+            win.callOnFlip(stamp, "stim_off", record["trial"], record["stimulus"], record, "stim_off_us")
+            win.flip()
+            sync.update()
+            wait_until(onset + STIMULUS_SECONDS + ISI_SECONDS, cross, record)
+            previous_record = record
+
+        operator.stage, operator.normal_detail = "休憩", "休憩してください"
+        operator.rest_remaining = int(math.ceil(REST_SECONDS))
+        cross.draw()
+        win.callOnFlip(finish_trial, previous_record)
+        win.callOnFlip(lambda summary=summary, block=block: summary.update(
+            task_end_us=stamp("task_end", 0, "", block=block),
+            rest_start_us=stamp("rest_start", 0, "", block=block)))
+        win.flip()
+        win.recordFrameIntervals = False
+        summary["frame_timing"] = frame_timing_summary(win)
+        sync.update()
+        checkpoint()
+        wait_until(start + block_duration, cross)
+        previous_summary = summary
     cross.draw()
+    win.callOnFlip(finish_rest, previous_summary)
+    win.callOnFlip(lambda: protocol.update(set_end_us=stamp("set_end", 0, "")))
+    win.callOnFlip(operator.finish_task)
     win.flip()
-    check_escape(kb)
-    timer = core.Clock()
-
-    def countdown_onset():
-        timer.reset()
-        stamp(prefix + "_countdown", 0, "")
-
-    operator.render(force=True, on_flip=countdown_onset)
-    last_remaining = SYNC_COUNTDOWN_SECONDS
-    while timer.getTime() < SYNC_COUNTDOWN_SECONDS:
-        check_escape(kb)
-        remaining = max(1, int(math.ceil(SYNC_COUNTDOWN_SECONDS - timer.getTime())))
-        if remaining != last_remaining:
-            operator.detail = "{}マーカーまで {} 秒".format(label, remaining)
-            operator.render(force=True)
-            last_remaining = remaining
-        cross.draw()
-        win.flip()
-
-    check_escape(kb)
-    operator.detail = "{}マーカーを入力".format(label)
-
-    def cue_onset():
-        timer.reset()
-        stamp(prefix + "_cue", 0, "")
-
-    operator.render(force=True, on_flip=cue_onset)
-    while timer.getTime() < SYNC_CUE_SECONDS:
-        check_escape(kb)
-        cross.draw()
-        win.flip()
-    check_escape(kb)
-    operator.stage = "課題実行中" if phase == "start" else "記録終了"
-    operator.detail = "課題を開始します" if phase == "start" else "記録を保存します"
-    operator.render(force=True, on_flip=lambda: stamp(prefix + "_cue_end", 0, ""))
+    operator.stage = "記録終了"
+    operator.rest_remaining = 0
+    operator.normal_detail = "Raw TLXを準備しています"
+    sync.update()
+    operator.render(force=True)
+    checkpoint()
 
 
 def frame_timing_summary(win):
@@ -574,8 +718,14 @@ def main():
     if type(SYNC_COUNTDOWN_SECONDS) is not int or SYNC_COUNTDOWN_SECONDS < 1:
         raise ValueError("SYNC_COUNTDOWN_SECONDS must be a positive integer")
     if not all(math.isfinite(value) and value > 0
-               for value in (SYNC_CUE_SECONDS, OPERATOR_REFRESH_HZ)):
-        raise ValueError("SYNC_CUE_SECONDS and OPERATOR_REFRESH_HZ must be finite and positive")
+               for value in (SYNC_CUE_SECONDS, OPERATOR_REFRESH_HZ, REST_SECONDS,
+                             STIMULUS_SECONDS, ISI_SECONDS)):
+        raise ValueError("Timing and refresh settings must be finite and positive")
+    if type(N_BLOCKS) is not int or N_BLOCKS < 1 or type(N_TRIALS) is not int:
+        raise ValueError("N_BLOCKS and N_TRIALS must be positive integers")
+    active_seconds = N_TRIALS * (STIMULUS_SECONDS + ISI_SECONDS)
+    if min(active_seconds, REST_SECONDS) < SYNC_COUNTDOWN_SECONDS + SYNC_CUE_SECONDS:
+        raise ValueError("Task and rest must accommodate the countdown and marker cue")
     validate_screen_configuration()
     subject = re.sub(r"[^A-Za-z0-9_-]", "_", PARTICIPANT_ID)
     if not subject:
@@ -584,7 +734,9 @@ def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     base = OUTPUT_DIR / f"{subject}_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
     rng_seed = SEED if SEED is not None else random.SystemRandom().randrange(2 ** 32)
-    design = make_design(N_BACK, N_TRIALS, rng_seed)
+    seed_rng = random.Random(rng_seed)
+    block_seeds = [seed_rng.randrange(2 ** 32) for _ in range(N_BLOCKS)]
+    designs = [make_design(N_BACK, N_TRIALS, seed) for seed in block_seeds]
     recorder = StreamRecorder(base)
     events, trials = [], []
     tracker, win, operator_win, operator = None, None, None, None
@@ -592,6 +744,14 @@ def main():
     cal_result, device_info, size, operator_size = None, {}, None, None
     participant_frame_timing = None
     cleanup_errors = []
+    protocol = {"blocks": [], "completed_blocks": 0, "set_start_us": None, "set_end_us": None}
+    tlx = RawTLXSession(Path(f"{base}_tlx.csv"), subject, N_BACK, N_BLOCKS)
+    recorder_closed, unsubscribed, gaze_started = False, False, False
+
+    def checkpoint():
+        save_csv(Path(f"{base}_events.csv"), EVENT_COLUMNS, events)
+        save_csv(Path(f"{base}_trials.csv"), TRIAL_COLUMNS,
+                 [[row.get(key, "") for key in TRIAL_COLUMNS] for row in trials])
 
     def progress(message):
         # The last line helps locate a true block in calibration/SDK startup.
@@ -600,17 +760,20 @@ def main():
         with open(f"{base}_progress.log", "a", encoding="utf-8") as f:
             f.write(line + "\n")
 
-    def wait_for_space(kb, text, stage):
+    def wait_for_space(kb, text, stage, timeout=START_KEY_TIMEOUT_SECONDS):
         # Unlike waitKeys(default waitRelease=True), this responds on KEY-DOWN.
         kb.clearEvents()
         text.draw()
         win.flip()
         operator.stage = "校正の準備" if stage == "BEFORE_CALIBRATION" else "課題の準備"
         operator.detail = "準備ができたらSPACEを押してください"
+        if stage == "AFTER_TLX":
+            operator.stage = "完了"
+            operator.detail = "Raw TLX {:.1f} 保存済み。SPACEで終了".format(tlx.score)
         operator.render(force=True)
         progress(stage + ": SPACE to continue; ESC to quit (click task window if needed)")
         timer = core.Clock()
-        while timer.getTime() < START_KEY_TIMEOUT_SECONDS:
+        while timeout is None or timer.getTime() < timeout:
             keys = kb.getKeys(keyList=["space", "escape"], waitRelease=False, clear=True)
             if any(key.name == "escape" for key in keys):
                 raise ExperimentAborted("ESC at " + stage)
@@ -621,11 +784,14 @@ def main():
             core.wait(0.01)
         raise RuntimeError(stage + ": no SPACE key received within timeout; check PsychoPy window focus")
 
-    def stamp(event_name, trial_no, stimulus, record=None, field=None):
+    def stamp(event_name, trial_no, stimulus, record=None, field=None, block=None):
         us = tr.get_system_time_stamp()
-        events.append([event_name, trial_no, stimulus, us])
+        if block is None:
+            block = record.get("block", 0) if record is not None else 0
+        events.append([event_name, trial_no, stimulus, us, block])
         if record is not None and field is not None:
             record[field] = us
+        return us
 
     def poll_keys(kb, record):
         for key in kb.getKeys(keyList=["left", "right", "escape"], waitRelease=False, clear=True):
@@ -649,6 +815,20 @@ def main():
             action()
         except Exception as exc:
             cleanup_errors.append("{}: {}: {}".format(label, type(exc).__name__, exc))
+
+    def unsubscribe():
+        nonlocal unsubscribed
+        if tracker is not None and not unsubscribed:
+            recorder.unsubscribe_all(tracker)
+            unsubscribed = True
+            if gaze_started:
+                stamp("recording_stop", 0, "")
+
+    def close_recorder():
+        nonlocal recorder_closed
+        if not recorder_closed:
+            recorder.close()
+            recorder_closed = True
 
     try:
         # Create the participant window last, so initial keyboard focus is there.
@@ -715,8 +895,10 @@ def main():
         message.text = (f"Calibration complete.\n\n{N_BACK}-BACK\n"
                         f"RIGHT arrow: same digit as {N_BACK} trials ago.\n"
                         "LEFT arrow: different digit.\n"
-                        f"For the first {N_BACK} trials, press LEFT.\n"
+                        f"For the first {N_BACK} trials of EACH block, press LEFT.\n"
                         "Respond once on every trial.\n"
+                        f"{N_BLOCKS} blocks of {N_TRIALS} trials; {REST_SECONDS:g}-second rest after each block.\n"
+                        "Answer the questionnaire after all blocks.\n"
                         "Keep looking at + while waiting for the task.\n\n"
                         "SPACE: ready   ESC: exit")
         wait_for_space(kb, message, "AFTER_CALIBRATION_WAIT_FOR_START")
@@ -728,6 +910,7 @@ def main():
         operator.render(force=True)
         progress("SUBSCRIBE gaze started")
         recorder.subscribe(tracker, "gaze", "EYETRACKER_GAZE_DATA", required=True)
+        gaze_started = True
         progress("SUBSCRIBE gaze finished")
         if RECORD_EYE_OPENNESS:
             recorder.subscribe(tracker, "eye_openness", "EYETRACKER_EYE_OPENNESS_DATA")
@@ -744,68 +927,19 @@ def main():
             # Spectrum SDK eye images are low-rate (~10 Hz), not 1200-Hz raw camera video.
             recorder.subscribe(tracker, "eye_images", "EYETRACKER_EYE_IMAGES")
 
-        run_sync_phase(win, cross, kb, operator, stamp, "start")
-        progress("TASK about to start")
-
-        trial_clock = core.Clock()
-        frame_period = win.monitorFramePeriod if win.monitorFramePeriod else (1 / 60)
-        frame_tol = min(.010, max(.001, frame_period * .5))
-        win.frameIntervals = []
-        win.nDroppedFrames = 0
-        win.recordFrameIntervals = True
-        for plan in design:
-            operator.trial = plan["trial"]
-            if plan["trial"] == 1 or plan["trial"] % 5 == 0:
-                progress("TRIAL {}/{}; queue={}".format(plan["trial"], N_TRIALS, recorder.items.qsize()))
-            rec = {**plan, "response_key": "", "correct": "", "rt_seconds": "",
-                   "stim_on_us": "", "stim_off_us": "",
-                   "response_detected_us": "", "completed": 0}
-            try:
-                digit.text = rec["stimulus"]
-                digit.draw()
-                win.callOnFlip(trial_clock.reset)
-                win.callOnFlip(kb.clock.reset)
-                win.callOnFlip(kb.clearEvents)
-                if rec["trial"] == 1:
-                    win.callOnFlip(operator.start_task)
-                    win.callOnFlip(stamp, "task_start", 0, "")
-                win.callOnFlip(stamp, "stim_on", rec["trial"], rec["stimulus"],
-                               rec, "stim_on_us")
-                win.flip()
-                operator.detail = "数字を提示中"
-                operator.render()
-
-                while trial_clock.getTime() < STIMULUS_SECONDS - frame_tol:
-                    poll_keys(kb, rec)
-                    digit.draw()
-                    win.flip()
-                    operator.render()
-                cross.draw()
-                win.callOnFlip(stamp, "stim_off", rec["trial"], rec["stimulus"],
-                               rec, "stim_off_us")
-                win.flip()
-                operator.detail = "注視点・回答受付中"
-                operator.render()
-                while trial_clock.getTime() < STIMULUS_SECONDS + ISI_SECONDS - frame_tol:
-                    poll_keys(kb, rec)
-                    cross.draw()
-                    win.flip()
-                    operator.render()
-                poll_keys(kb, rec)
-                rec["completed"] = 1
-                expected_key = "right" if rec["is_target"] else "left"
-                rec["correct"] = int(rec["response_key"] == expected_key)
-                operator.complete_trial(rec)
-            finally:
-                trials.append([rec.get(key, "") for key in TRIAL_COLUMNS])
-
-        cross.draw()
-        win.callOnFlip(operator.finish_task)
-        win.callOnFlip(stamp, "task_end", 0, "")
-        win.flip()
-        win.recordFrameIntervals = False
-        participant_frame_timing = frame_timing_summary(win)
-        run_sync_phase(win, cross, kb, operator, stamp, "end")
+        run_nback_blocks(win, cross, digit, kb, operator, designs, trials, protocol,
+                         stamp, poll_keys, checkpoint)
+        unsubscribe()
+        close_recorder()
+        checkpoint()
+        if recorder.writer_error:
+            raise RuntimeError("Recording failed: " + recorder.writer_error)
+        kb.clearEvents()
+        run_raw_tlx(win, operator, tlx,
+                    lambda name, detail: stamp(name, 0, detail), lambda: check_escape(kb))
+        message.font = "Yu Gothic"
+        message.text = "回答を保存しました。\nご協力ありがとうございました。"
+        wait_for_space(kb, message, "AFTER_TLX", timeout=None)
         status = "completed"
 
     except ExperimentAborted as exc:
@@ -817,27 +951,42 @@ def main():
         print("EXPERIMENT ERROR:", err)
         raise
     finally:
+        for record in trials:
+            if record["stim_on_us"] != "" and record["response_window_end_us"] == "":
+                stamp("response_window_end", record["trial"], record["stimulus"],
+                      record, "response_window_end_us")
+        cleanup_step("TLX partial save", tlx.abort)
         if operator is not None:
             operator.finish_task()
         if win is not None:
             win.recordFrameIntervals = False
-            if participant_frame_timing is None and operator is not None and operator.task_started:
+            if protocol["blocks"] and protocol["blocks"][-1]["frame_timing"] is None:
                 try:
-                    participant_frame_timing = frame_timing_summary(win)
+                    protocol["blocks"][-1]["frame_timing"] = frame_timing_summary(win)
                 except Exception as exc:
                     cleanup_errors.append("frame timing: {}".format(exc))
+        frames = [block["frame_timing"] for block in protocol["blocks"] if block["frame_timing"]]
+        if frames:
+            count = sum(frame["recorded_intervals"] for frame in frames)
+            participant_frame_timing = {
+                "recorded_intervals": count,
+                "mean_interval_seconds": sum((frame["mean_interval_seconds"] or 0) * frame["recorded_intervals"]
+                                             for frame in frames) / count if count else None,
+                "max_interval_seconds": max((frame["max_interval_seconds"] or 0) for frame in frames),
+                "dropped_frames": sum(frame["dropped_frames"] for frame in frames),
+                "refresh_threshold_seconds": frames[0]["refresh_threshold_seconds"],
+            }
         if tracker is not None:
             cleanup_step("cleanup log", lambda: progress("CLEANUP: unsubscribing"))
-            cleanup_step("unsubscribe", lambda: recorder.unsubscribe_all(tracker))
-        cleanup_step("recorder close", recorder.close)
+            cleanup_step("unsubscribe", unsubscribe)
+        cleanup_step("recorder close", close_recorder)
         for window in (win, operator_win):
             if window is not None:
                 cleanup_step("window close", window.close)
         if cleanup_errors:
             err = "{}; {}".format(err or "", "; ".join(cleanup_errors))
             status = "failed"
-        save_csv(Path(f"{base}_events.csv"), EVENT_COLUMNS, events)
-        save_csv(Path(f"{base}_trials.csv"), TRIAL_COLUMNS, trials)
+        checkpoint()
         if recorder.writer_error:
             err = f"{err or ''}; Disk writer: {recorder.writer_error}"
             status = "failed"
@@ -858,8 +1007,16 @@ def main():
             "participant": subject, "status": status, "error": err,
             "psychopy_version": getattr(psychopy, "__version__", None),
             "python_version": sys.version, "n_back": N_BACK,
-            "requested_trials": N_TRIALS,
-            "completed_trials": sum(int(r[-1]) for r in trials),
+            "requested_trials": N_TRIALS * N_BLOCKS,
+            "completed_trials": sum(row["completed"] for row in trials),
+            "trials_per_block": N_TRIALS, "requested_blocks": N_BLOCKS,
+            "completed_blocks": protocol["completed_blocks"],
+            "rest_seconds": REST_SECONDS,
+            "planned_set_seconds": N_BLOCKS * (active_seconds + REST_SECONDS),
+            "actual_set_seconds": ((protocol["set_end_us"] - protocol["set_start_us"]) / 1e6
+                                   if protocol["set_end_us"] is not None else None),
+            "block_seeds": block_seeds, "blocks": protocol["blocks"],
+            "tlx_status": tlx.status, "raw_tlx": tlx.score,
             "stimulus_seconds": STIMULUS_SECONDS, "isi_seconds": ISI_SECONDS,
             "target_probability": TARGET_PROBABILITY, "seed": rng_seed,
             "stimulus_digits": DIGITS,
@@ -893,8 +1050,9 @@ def main():
                               "marks display-flip callback; not photodiode-confirmed photon onset. "
                               "Sync events use the operator window (waitBlanking=False) and do "
                               "not measure the actual manual marker input on external devices. "
-                              "task_start is the first stimulus flip; task_end follows the final "
-                              "trial response window, before the end-sync countdown.",
+                              "Each block has task_start/task_end around its active trials and "
+                              "rest_start/rest_end around its rest. Countdown/cues run concurrently. "
+                              "set_start/set_end include six active/rest blocks; TLX is recorded separately.",
         }
         Path(f"{base}_metadata.json").write_text(
             json.dumps(json_safe(metadata), ensure_ascii=False, indent=2), encoding="utf-8")
