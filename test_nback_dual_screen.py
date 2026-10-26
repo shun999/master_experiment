@@ -274,7 +274,7 @@ class DualScreenTests(unittest.TestCase):
         rig = Rig(**kwargs)
         task = rig.load(root, full=full)
         with redirect_stdout(io.StringIO()):
-            task.main()
+            task.main('DNV', 2)
         return (rig, task) + self.read_outputs(root)
 
     def test_full_540_second_protocol_and_sync(self):
@@ -356,7 +356,7 @@ class DualScreenTests(unittest.TestCase):
             rig = Rig()
             task = rig.load(root)
             window = rig.window(screen=0, waitBlanking=False)
-            operator = task.OperatorDisplay(window, 'AFX')
+            operator = task.OperatorDisplay(window, task.load_nback_assignment(task.COUNTERBALANCE_CSV, 'DNV', 2))
             for step in range(100):
                 operator.detail = str(step)
                 operator.render()
@@ -401,7 +401,7 @@ class DualScreenTests(unittest.TestCase):
                 task = rig.load(root)
                 task.SKIP_CALIBRATION = False
                 with redirect_stdout(io.StringIO()):
-                    task.main()
+                    task.main('DNV', 2)
                 metadata, events, trials = self.read_outputs(root)
                 self.assertEqual(metadata['status'], 'completed' if abort is None else 'aborted')
                 self.assertTrue(rig.recorder.closed)
@@ -415,7 +415,7 @@ class DualScreenTests(unittest.TestCase):
                 rig = Rig(**options)
                 task = rig.load(root)
                 with self.assertRaises(RuntimeError), redirect_stdout(io.StringIO()):
-                    task.main()
+                    task.main('DNV', 2)
                 metadata, events, trials = self.read_outputs(root)
                 self.assertEqual(metadata['status'], 'failed')
                 self.assertEqual(metadata['tlx_status'], 'not_started')

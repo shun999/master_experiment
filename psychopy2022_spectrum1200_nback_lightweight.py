@@ -10,8 +10,7 @@ Compatible Python/Tobii SDK versions depend on the exact Standalone install.
 """
 
 # ========================= EDIT THESE SETTINGS ===========================
-PARTICIPANT_ID = "P001"       # Use a pseudonym; do not put participants' names here
-N_BACK = 1
+# Participant/session and N value are selected from counterbalance.csv at startup.
 N_TRIALS = 30               # Trials per block
 N_BLOCKS = 6
 REST_SECONDS = 30.0
@@ -19,6 +18,7 @@ STIMULUS_SECONDS = 0.50
 ISI_SECONDS = 1.50
 TARGET_PROBABILITY = 0.30
 DIGITS = "0123456789"
+ZERO_BACK_TARGET = "X"       # Fixed for all participants and blocks
 TOBII_FREQUENCY_HZ = 1200     # Fail fast if this device cannot actually offer 1200 Hz
 TOBII_SERIAL = None           # Set if more than one tracker is on the network
 SCREEN_INDEX = 1             # Participant monitor (extended desktop)
@@ -49,7 +49,6 @@ import math
 from pathlib import Path
 import queue
 import random
-import re
 import sys
 import threading
 import time
@@ -59,8 +58,11 @@ from psychopy.hardware import keyboard
 import psychopy
 import tobii_research as tr
 from nasa_tlx import RawTLXSession, run_raw_tlx
+from experiment_assignment import (NBACK_BY_DIFFICULTY, load_nback_assignment,
+                                   prompt_nback_assignment)
 
 OUTPUT_DIR = Path(__file__).resolve().parent / "nback_data"
+COUNTERBALANCE_CSV = Path(__file__).resolve().parent / "counterbalance.csv"
 
 # Gaze data: all documented left/right-eye gaze and pupil quantities,
 # plus timestamps. Raw dictionaries are separately written to JSON Lines.
@@ -116,6 +118,11 @@ def make_design(n, count, seed):
     rng = random.Random(seed)
     sequence, design = [], []
     for i in range(count):
+        if n == 0:
+            target = rng.random() < TARGET_PROBABILITY
+            stimulus = ZERO_BACK_TARGET if target else rng.choice(DIGITS)
+            design.append({"trial": i + 1, "stimulus": stimulus, "is_target": int(target)})
+            continue
         target = i >= n and rng.random() < TARGET_PROBABILITY
         if target:
             digit = sequence[i - n]
@@ -126,6 +133,22 @@ def make_design(n, count, seed):
         design.append({"trial": i + 1, "stimulus": digit,
                        "is_target": int(i >= n and digit == sequence[i - n])})
     return design
+
+
+def participant_instructions(assignment):
+    n = assignment.n_back
+    if n == 0:
+        rule = (f"RIGHT arrow: {ZERO_BACK_TARGET}.\n"
+                "LEFT arrow: any digit (0-9).\n")
+    else:
+        rule = (f"RIGHT arrow: same digit as {n} trials ago.\n"
+                "LEFT arrow: different digit.\n"
+                f"For the first {n} trials of EACH block, press LEFT.\n")
+    return (f"Calibration complete.\n\n{n}-BACK\n" + rule
+            + "Respond once on every trial.\n"
+            + f"{N_BLOCKS} blocks of {N_TRIALS} trials; {REST_SECONDS:g}-second rest after each block.\n"
+            + "Answer the questionnaire after all blocks.\n"
+            + "Keep looking at + while waiting for the task.\n\nSPACE: ready   ESC: exit")
 
 
 def validate_screen_configuration():
@@ -152,9 +175,10 @@ def check_escape(kb):
 class OperatorDisplay:
     """Reusable operator stimuli, updated only on the main/UI thread."""
 
-    def __init__(self, win, subject):
+    def __init__(self, win, assignment):
         self.win = win
-        self.subject = subject
+        self.assignment = assignment
+        self.subject = assignment.participant_id
         self.gaze_frequency = None
         self.stage = "準備中"
         self.detail = ""
@@ -216,21 +240,27 @@ class OperatorDisplay:
         body = (
             "段階: {}\n"
             "協力者ID: {}    課題: {}-back\n"
-            "数字集合: {}    総試行数: {}\n"
+            "実験回数（セット）: {}/4    難易度番号: {}\n"
+            "刺激集合: {}    総試行数: {}\n"
             "刺激: {:.2f} 秒    ISI: {:.2f} 秒\n"
             "ターゲット確率: {:.0f}%    取得周波数: {} Hz\n\n"
             "ブロック: {}/{}    現在の試行: {}/{}\n"
             "完了試行: {}    セット経過: {} 秒    休憩残り: {}\n"
             "{}\n"
             "累積正答率: {}\n\n"
-            "回答: 一致は右矢印 / 不一致は左矢印\n"
+            "回答: {}\n"
             "操作: SPACEで準備段階を進む / ESCで中断"
-        ).format(self.stage, self.subject, N_BACK, DIGITS, N_TRIALS * N_BLOCKS,
+        ).format(self.stage, self.subject, self.assignment.n_back,
+                 self.assignment.session_number, self.assignment.difficulty_level,
+                 DIGITS + ZERO_BACK_TARGET if self.assignment.n_back == 0 else DIGITS,
+                 N_TRIALS * N_BLOCKS,
                  STIMULUS_SECONDS, ISI_SECONDS, TARGET_PROBABILITY * 100,
                  self.gaze_frequency if self.gaze_frequency is not None else "未確認",
                  self.block, N_BLOCKS, self.trial, N_TRIALS, self.completed, int(elapsed),
                  "-" if self.rest_remaining is None else "{} 秒".format(self.rest_remaining),
-                 last_response, accuracy)
+                 last_response, accuracy,
+                 f"{ZERO_BACK_TARGET}は右矢印 / 数字は左矢印" if self.assignment.n_back == 0
+                 else "一致は右矢印 / 不一致は左矢印")
         text = (self.detail or self.stage, body)
         if not force and on_flip is None and text == self.last_text:
             return False
@@ -710,9 +740,18 @@ def tracker_info(tracker):
     }
 
 
-def main():
-    if not (N_BACK >= 1 and N_TRIALS > N_BACK and 0 <= TARGET_PROBABILITY <= 1):
-        raise ValueError("Check N_BACK, N_TRIALS, TARGET_PROBABILITY")
+def main(participant_id=None, session_number=None):
+    if participant_id is None and session_number is None:
+        assignment = prompt_nback_assignment(COUNTERBALANCE_CSV)
+        if assignment is None:
+            return
+    elif participant_id is None or session_number is None:
+        raise ValueError("Specify both participant_id and session_number")
+    else:
+        assignment = load_nback_assignment(COUNTERBALANCE_CSV, participant_id, session_number)
+    subject, n_back = assignment.participant_id, assignment.n_back
+    if not (0 <= n_back and N_TRIALS > n_back and 0 <= TARGET_PROBABILITY <= 1):
+        raise ValueError("Check assigned N value, N_TRIALS, TARGET_PROBABILITY")
     if QUEUE_CAPACITY < 2:
         raise ValueError("QUEUE_CAPACITY must be >= 2")
     if type(SYNC_COUNTDOWN_SECONDS) is not int or SYNC_COUNTDOWN_SECONDS < 1:
@@ -727,16 +766,15 @@ def main():
     if min(active_seconds, REST_SECONDS) < SYNC_COUNTDOWN_SECONDS + SYNC_CUE_SECONDS:
         raise ValueError("Task and rest must accommodate the countdown and marker cue")
     validate_screen_configuration()
-    subject = re.sub(r"[^A-Za-z0-9_-]", "_", PARTICIPANT_ID)
-    if not subject:
-        raise ValueError("Set PARTICIPANT_ID")
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    base = OUTPUT_DIR / f"{subject}_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+    base = OUTPUT_DIR / (f"{subject}_nback_s{assignment.session_number:02d}"
+                         f"_d{assignment.difficulty_level:02d}_n{n_back:02d}_"
+                         + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
     rng_seed = SEED if SEED is not None else random.SystemRandom().randrange(2 ** 32)
     seed_rng = random.Random(rng_seed)
     block_seeds = [seed_rng.randrange(2 ** 32) for _ in range(N_BLOCKS)]
-    designs = [make_design(N_BACK, N_TRIALS, seed) for seed in block_seeds]
+    designs = [make_design(n_back, N_TRIALS, seed) for seed in block_seeds]
     recorder = StreamRecorder(base)
     events, trials = [], []
     tracker, win, operator_win, operator = None, None, None, None
@@ -745,7 +783,9 @@ def main():
     participant_frame_timing = None
     cleanup_errors = []
     protocol = {"blocks": [], "completed_blocks": 0, "set_start_us": None, "set_end_us": None}
-    tlx = RawTLXSession(Path(f"{base}_tlx.csv"), subject, N_BACK, N_BLOCKS)
+    tlx = RawTLXSession(Path(f"{base}_tlx.csv"), subject, n_back, N_BLOCKS,
+                        session_number=assignment.session_number,
+                        difficulty_level=assignment.difficulty_level)
     recorder_closed, unsubscribed, gaze_started = False, False, False
 
     def checkpoint():
@@ -842,7 +882,7 @@ def main():
                             winType="pyglet")
         size = [int(x) for x in win.size]
         kb = keyboard.Keyboard()
-        operator = OperatorDisplay(operator_win, subject)
+        operator = OperatorDisplay(operator_win, assignment)
         operator.detail = "Tobii接続を確認しています"
         operator.render(force=True)
         message = visual.TextStim(win, color="white", height=30, wrapWidth=900)
@@ -892,15 +932,7 @@ def main():
             progress("CALIBRATION_DATA retrieval finished")
             check_escape(kb)
 
-        message.text = (f"Calibration complete.\n\n{N_BACK}-BACK\n"
-                        f"RIGHT arrow: same digit as {N_BACK} trials ago.\n"
-                        "LEFT arrow: different digit.\n"
-                        f"For the first {N_BACK} trials of EACH block, press LEFT.\n"
-                        "Respond once on every trial.\n"
-                        f"{N_BLOCKS} blocks of {N_TRIALS} trials; {REST_SECONDS:g}-second rest after each block.\n"
-                        "Answer the questionnaire after all blocks.\n"
-                        "Keep looking at + while waiting for the task.\n\n"
-                        "SPACE: ready   ESC: exit")
+        message.text = participant_instructions(assignment)
         wait_for_space(kb, message, "AFTER_CALIBRATION_WAIT_FOR_START")
         kb.clearEvents()
         cross.draw()
@@ -1006,7 +1038,12 @@ def main():
         metadata = {
             "participant": subject, "status": status, "error": err,
             "psychopy_version": getattr(psychopy, "__version__", None),
-            "python_version": sys.version, "n_back": N_BACK,
+            "python_version": sys.version, "n_back": n_back,
+            "task": "nback", "session_number": assignment.session_number,
+            "difficulty_level": assignment.difficulty_level,
+            "counterbalance_csv": str(COUNTERBALANCE_CSV),
+            "counterbalance_column": assignment.column,
+            "difficulty_to_nback": NBACK_BY_DIFFICULTY,
             "requested_trials": N_TRIALS * N_BLOCKS,
             "completed_trials": sum(row["completed"] for row in trials),
             "trials_per_block": N_TRIALS, "requested_blocks": N_BLOCKS,
@@ -1020,6 +1057,8 @@ def main():
             "stimulus_seconds": STIMULUS_SECONDS, "isi_seconds": ISI_SECONDS,
             "target_probability": TARGET_PROBABILITY, "seed": rng_seed,
             "stimulus_digits": DIGITS,
+            "stimulus_symbols": DIGITS + ZERO_BACK_TARGET if n_back == 0 else DIGITS,
+            "zero_back_target": ZERO_BACK_TARGET if n_back == 0 else None,
             "response_keys": {"target": "right", "non_target": "left"},
             "screen_index": SCREEN_INDEX, "screen_pixels": size,
             "participant_wait_blanking": True,
