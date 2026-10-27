@@ -160,6 +160,40 @@ NumLockをONにしてテンキーを使ってください。入力文字を被�
 
 出力プレフィックスにはID・課題・回数・難易度番号・N値・日時を含めます。例：`AFX_nback_s01_d03_n02_<日時>_trials.csv`。メタデータとRaw TLX CSVにも `session_number`、`difficulty_level`、`n_back` を保存します。メタデータには参照したCSV列、対応表、実際の刺激集合と0-backの固定ターゲットも保存します。
 
+## N-backの起動途中で停止する場合の診断
+
+N-backでは、ID・実験回数の確定と条件検証後、ウィンドウ生成などの各処理の前後にログを出します。実施者用ウィンドウが生成できたら、被験者用ウィンドウを作る前に「被験者画面を準備しています」を描画します。実行スクリプトの絶対パス、Python実行ファイルとバージョン、PsychoPyのバージョン・場所、画面設定も `STARTUP ENVIRONMENT` 行へ記録します。
+
+ターミナルと、その実行の結果フォルダー内の `*_progress.log` に同じ開始・完了行を即時出力します。例えば次のように `START` だけがあり、対応する `END` がなければ、被験者用ウィンドウ生成中に停止していることが分かります。例外がPythonへ返った場合は `FAILED` と例外の内容を残します。
+
+```text
+STARTUP OPERATOR_WINDOW START
+STARTUP OPERATOR_WINDOW END
+STARTUP OPERATOR_STIMULI START
+STARTUP OPERATOR_STIMULI END
+STARTUP OPERATOR_FIRST_FLIP START
+STARTUP OPERATOR_FIRST_FLIP END
+STARTUP PARTICIPANT_WINDOW START
+```
+
+| 段階名 | 調べる処理 |
+| --- | --- |
+| `OPERATOR_WINDOW` | 実施者用ウィンドウの生成 |
+| `OPERATOR_STIMULI` | 実施者用テキスト・時計などの生成 |
+| `OPERATOR_FIRST_FLIP` | 実施者画面への最初の描画 |
+| `PARTICIPANT_WINDOW` | 被験者用ウィンドウの生成（内部の初期化・フレーム計測を含む） |
+| `KEYBOARD` | キーボードの初期化 |
+| `PARTICIPANT_STIMULI` | 被験者用の説明・数字・注視点の生成 |
+| `PARTICIPANT_FIRST_FLIP` | 被験者画面への注視点の描画 |
+| `KEYBOARD_INITIAL_POLL` | キーボードの最初のESC確認 |
+| `OPERATOR_READY_FLIP` | 実施者画面のTobii接続案内への更新 |
+
+起動スクリプト先頭に `STARTUP_DIAGNOSTICS = True`、`STARTUP_TRACEBACK_SECONDS = 20.0` を設定しています。各処理が20秒を超えると、標準ライブラリの `faulthandler` が取得可能な全Pythonスレッドのスタックを `*_startup_traceback.log` に一度書き出します。プロセスを終了・再起動する機能ではありません。ネイティブライブラリ内部の停止では、Pythonから呼び出した位置までしか分からない場合があります。
+
+監視は処理ごとに解除し、`STARTUP COMPLETE` までにファイルも閉じます。Tobii接続、校正、SPACE待ち、課題、Raw TLXでは監視しません。正常起動でも診断ファイルには各処理の見出しを保存しますが、時間超過がなければ `Timeout` とスタックは出力されません。`STARTUP_DIAGNOSTICS = False` にすると開始・完了ログは残し、スタック監視と診断ファイル作成だけを無効にします。メタデータには診断の有効・無効、秒数、診断ファイルのパスを保存します。
+
+実機にはN-back本体と更新後の `src/` 全体をコピーしてください。停止した場合は、ターミナルの最後の行、同じ実行の `*_progress.log`、20秒経過後の `*_startup_traceback.log` を確認します。これは停止箇所の切り分け用の変更です。過去に報告されたPC本体の電源断やPTBのタイマー警告の解消を意味しません。
+
 ## N-back課題の刺激と回答方法
 
 0-backはXと0〜9の数字、1〜3-backは0〜9の1桁の数字を表示します。
