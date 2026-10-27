@@ -97,8 +97,8 @@ class AssignmentRuntimeTests(unittest.TestCase):
             self.assertTrue(any('実験回数（セット）: 1/4' in str(drawn) and '課題: 0-back' in str(drawn)
                                 and 'Xは右矢印' in str(drawn) for _, drawn, _ in rig.windows[0].history))
             text = task.participant_instructions(task.load_nback_assignment(task.COUNTERBALANCE_CSV, 'DNV', 1))
-            self.assertIn('RIGHT arrow: X.', text)
-            self.assertNotIn('first 0', text)
+            self.assertIn('「X」が表示されたら、右矢印キー', text)
+            self.assertNotIn('最初の0試行', text)
 
     def test_positive_conditions_reach_generator_and_instructions(self):
         for session, expected_n in [(2, 1), (4, 2), (3, 3)]:
@@ -121,7 +121,8 @@ class AssignmentRuntimeTests(unittest.TestCase):
                     for i, row in enumerate(block_rows):
                         self.assertEqual(int(row['is_target']), int(i >= expected_n and row['stimulus'] == block_rows[i-expected_n]['stimulus']))
                 instructions = task.participant_instructions(task.load_nback_assignment(task.COUNTERBALANCE_CSV, 'DNV', session))
-                self.assertIn('same digit as {} trials ago'.format(expected_n), instructions)
+                self.assertIn('{}個前の数字と同じなら、右矢印キー'.format(expected_n), instructions)
+                self.assertIn('最初の{}試行は、左矢印キー'.format(expected_n), instructions)
 
     def test_zero_back_scoring_uses_x_as_target(self):
         with tempfile.TemporaryDirectory() as root:

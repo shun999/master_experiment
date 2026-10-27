@@ -92,7 +92,7 @@ def participant_instructions(assignment):
             "数字{}秒＋注視点{}秒で、{}秒ごとに切り替わります。\n"
             "1ブロック{}個・課題{}秒＋休憩{}秒を{}回実施します。\n"
             "休憩中は＋を見てください。最後に質問紙へ回答します。\n\n"
-            "SPACE：準備完了    ESC：中断").format(
+            "スペースキー（SPACE）：準備完了\nエスケープキー（ESC）：中断").format(
                 TARGET_SUM, example_a, example_b, example_b, example_c,
                 STIMULUS_SECONDS, isi, interval, count,
                 TASK_SECONDS, REST_SECONDS, N_BLOCKS)
@@ -167,7 +167,7 @@ class OperatorDisplay:
                 "完了提示: {}/{}    完了回答対象: {}/{}\n"
                 "経過: {}秒    休憩残り: {}\n{}\n累積正答率: {}\n\n"
                 "最初の数字は記憶のみ。一致は右／不一致は左\n"
-                "SPACE：準備完了    ESC：中断").format(
+                "スペースキー（SPACE）で準備完了／エスケープキー（ESC）で中断").format(
                     self.stage, a.participant_id, TARGET_SUM, a.session_number, a.difficulty_level,
                     STIMULUS_SECONDS, self.isi, self.interval, TARGET_PROPORTION * 100,
                     self.gaze_frequency if self.gaze_frequency is not None else "未確認",
@@ -412,10 +412,10 @@ def main(participant_id=None, session_number=None):
         text.draw()
         win.flip()
         operator.stage = "校正の準備" if stage == "BEFORE_CALIBRATION" else "課題の準備"
-        operator.detail = "準備ができたらSPACEを押してください"
+        operator.detail = "準備ができたらスペースキー（SPACE）を押してください"
         if stage == "AFTER_TLX":
             operator.stage = "完了"
-            operator.detail = "Raw TLX {:.1f} 保存済み。SPACEで終了".format(tlx.score)
+            operator.detail = "Raw TLX {:.1f} 保存済み。スペースキー（SPACE）で終了".format(tlx.score)
         operator.render(force=True)
         progress(stage + ": SPACE to continue; ESC to quit (click task window if needed)")
         timer = core.Clock()
@@ -456,7 +456,7 @@ def main(participant_id=None, session_number=None):
     def calibration_progress(message):
         progress(message)
         operator.stage = "キャリブレーション"
-        operator.detail = message
+        operator.detail = runtime.calibration_message_ja(message)
         operator.render(force=True)
 
     def cleanup_step(label, action):
@@ -544,7 +544,7 @@ def main(participant_id=None, session_number=None):
         print("Tobii:", device_info["model"], "| frequency:", device_info["gaze_frequency_hz"])
 
         if not SKIP_CALIBRATION:
-            message.text = "Look at each red dot for calibration.\nSPACE: continue    ESC: exit"
+            message.text = runtime.CALIBRATION_INSTRUCTIONS_JA
             wait_for_space(kb, message, "BEFORE_CALIBRATION")
             progress("CALIBRATION started")
             cal_result = calibrate_tracker(tracker, win, progress=calibration_progress, kb=kb)
@@ -607,7 +607,7 @@ def main(participant_id=None, session_number=None):
         run_raw_tlx(win, operator, tlx,
                     lambda name, detail: stamp(name, 0, detail), lambda: check_escape(kb))
         message.font = "Yu Gothic"
-        message.text = "回答を保存しました。\nご協力ありがとうございました。"
+        message.text = "回答を保存しました。\nご協力ありがとうございました。\n\nスペースキー（SPACE）で終了します。"
         wait_for_space(kb, message, "AFTER_TLX", timeout=None)
         status = "completed"
 

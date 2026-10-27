@@ -159,6 +159,34 @@ def select_tracker(sdk, serial=None):
     return found[0]
 
 
+CALIBRATION_INSTRUCTIONS_JA = (
+    "視線の校正を行います。\n"
+    "画面に表示される赤い点を順番に見てください。\n\n"
+    "スペースキー（SPACE）で開始\n"
+    "エスケープキー（ESC）で中断"
+)
+
+
+def calibration_message_ja(message):
+    """Translate operator guidance while leaving diagnostic log messages intact."""
+    stages = {
+        "CALIBRATION: enter SDK calibration mode": "校正モードを開始しています",
+        "CALIBRATION: compute/apply": "校正結果を計算して適用しています",
+        "CALIBRATION: leave calibration mode": "校正モードを終了しています",
+        "CALIBRATION: left calibration mode": "校正モードを終了しました",
+    }
+    if message in stages:
+        return stages[message]
+    for prefix, text in (("CALIBRATION: collect point ", "校正点を取得しています"),
+                         ("CALIBRATION: retry point ", "校正点を再取得しています")):
+        if message.startswith(prefix):
+            position = message[len(prefix):].split()
+            if len(position) == 2:
+                return "{}（位置：{}、{}）".format(text, *position)
+            return text
+    return "校正処理を実行しています"
+
+
 def calibrate_tracker(tracker, win, progress=None, kb=None, *, core, visual, sdk):
     calibration = sdk.ScreenBasedCalibration(tracker)
     points = [(0.5, 0.5), (0.12, 0.12), (0.88, 0.12),

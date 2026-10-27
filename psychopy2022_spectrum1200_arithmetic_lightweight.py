@@ -104,13 +104,15 @@ class BlockSyncDisplay(runtime.BlockSyncDisplay):
 
 def participant_instructions(assignment):
     return ("暗算課題（{}桁 + {}桁）\n\n"
-            "テンキーで答えを入力してください。NumLockをONにしてください。\n"
-            "Backspace：1文字削除   Delete：全削除\n"
-            "Enterによる確定は不要です。{}秒後の入力を自動採点します。\n"
-            "問題が切り替わるまで修正できます。\n"
+            "テンキーで答えを入力してください。\n"
+            "ナムロック（NumLock）を有効にしてください。\n"
+            "バックスペースキー（Backspace）：1文字削除\n"
+            "デリートキー（Delete）：全削除\n"
+            "エンターキー（Enter）での確定は不要です。\n"
+            "{}秒後に自動採点します。切り替わるまで修正できます。\n"
             "1ブロック{}問、課題{}秒と休憩{}秒を{}回実施します。\n"
             "休憩中は＋を見てください。最後に質問紙へ回答します。\n\n"
-            "SPACE：準備完了   ESC：中断").format(
+            "スペースキー（SPACE）：準備完了\nエスケープキー（ESC）：中断").format(
                 assignment.operand_digits, assignment.operand_digits, TRIAL_SECONDS,
                 N_TRIALS, N_TRIALS * TRIAL_SECONDS, REST_SECONDS, N_BLOCKS)
 
@@ -191,7 +193,7 @@ class OperatorDisplay:
                 "ブロック: {}/{}    現在の問題: {}/{}\n"
                 "完了: {}/{}    セット経過: {}秒    休憩残り: {}\n"
                 "現在の式: {}\n入力（未確定）: {}\n{}\n累積正答率: {}\n"
-                "操作: SPACEで準備段階を進む / ESCで中断").format(
+                "操作：スペースキー（SPACE）で準備完了／エスケープキー（ESC）で中断").format(
                     self.stage, a.participant_id, a.operand_digits, a.operand_digits,
                     a.session_number, a.difficulty_level, TRIAL_SECONDS, N_TRIALS // 2,
                     self.gaze_frequency if self.gaze_frequency is not None else "未確認",
@@ -421,10 +423,10 @@ def main(participant_id=None, session_number=None):
         text.draw()
         win.flip()
         operator.stage = "校正の準備" if stage == "BEFORE_CALIBRATION" else "課題の準備"
-        operator.detail = "準備ができたらSPACEを押してください"
+        operator.detail = "準備ができたらスペースキー（SPACE）を押してください"
         if stage == "AFTER_TLX":
             operator.stage = "完了"
-            operator.detail = "Raw TLX {:.1f} 保存済み。SPACEで終了".format(tlx.score)
+            operator.detail = "Raw TLX {:.1f} 保存済み。スペースキー（SPACE）で終了".format(tlx.score)
         operator.render(force=True)
         progress(stage + ": SPACE to continue; ESC to quit (click task window if needed)")
         timer = core.Clock()
@@ -451,7 +453,7 @@ def main(participant_id=None, session_number=None):
     def calibration_progress(message):
         progress(message)
         operator.stage = "キャリブレーション"
-        operator.detail = message
+        operator.detail = runtime.calibration_message_ja(message)
         operator.render(force=True)
 
     def cleanup_step(label, action):
@@ -539,7 +541,7 @@ def main(participant_id=None, session_number=None):
         print("Tobii:", device_info["model"], "| frequency:", device_info["gaze_frequency_hz"])
 
         if not SKIP_CALIBRATION:
-            message.text = "Look at each red dot for calibration.\nSPACE: continue    ESC: exit"
+            message.text = runtime.CALIBRATION_INSTRUCTIONS_JA
             wait_for_space(kb, message, "BEFORE_CALIBRATION")
             progress("CALIBRATION started")
             cal_result = calibrate_tracker(tracker, win, progress=calibration_progress, kb=kb)
@@ -602,7 +604,7 @@ def main(participant_id=None, session_number=None):
         run_raw_tlx(win, operator, tlx,
                     lambda name, detail: stamp(name, 0, detail), lambda: check_escape(kb))
         message.font = "Yu Gothic"
-        message.text = "回答を保存しました。\nご協力ありがとうございました。"
+        message.text = "回答を保存しました。\nご協力ありがとうございました。\n\nスペースキー（SPACE）で終了します。"
         wait_for_space(kb, message, "AFTER_TLX", timeout=None)
         status = "completed"
 

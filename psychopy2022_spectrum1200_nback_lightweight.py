@@ -104,17 +104,21 @@ def make_design(n, count, seed):
 def participant_instructions(assignment):
     n = assignment.n_back
     if n == 0:
-        rule = (f"RIGHT arrow: {ZERO_BACK_TARGET}.\n"
-                "LEFT arrow: any digit (0-9).\n")
+        rule = (f"「{ZERO_BACK_TARGET}」が表示されたら、右矢印キーです。\n"
+                "0〜9の数字が表示されたら、左矢印キーです。\n")
     else:
-        rule = (f"RIGHT arrow: same digit as {n} trials ago.\n"
-                "LEFT arrow: different digit.\n"
-                f"For the first {n} trials of EACH block, press LEFT.\n")
-    return (f"Calibration complete.\n\n{n}-BACK\n" + rule
-            + "Respond once on every trial.\n"
-            + f"{N_BLOCKS} blocks of {N_TRIALS} trials; {REST_SECONDS:g}-second rest after each block.\n"
-            + "Answer the questionnaire after all blocks.\n"
-            + "Keep looking at + while waiting for the task.\n\nSPACE: ready   ESC: exit")
+        rule = (f"今の数字が{n}個前の数字と同じなら、右矢印キーです。\n"
+                "異なる数字なら、左矢印キーです。\n"
+                f"各ブロックの最初の{n}試行は、左矢印キーで回答します。\n")
+    active_seconds = N_TRIALS * (STIMULUS_SECONDS + ISI_SECONDS)
+    return (f"{n}-back課題\n\n" + rule
+            + "数字の表示中と、その後の「＋」表示中に回答できます。\n"
+            + "1試行につき1回、回答してください。\n"
+            + f"1ブロック{N_TRIALS}試行（課題{active_seconds:g}秒）です。\n"
+            + f"課題後の休憩{REST_SECONDS:g}秒を含むブロックを{N_BLOCKS}回行います。\n"
+            + "待機・休憩中は「＋」を見てください。\n"
+            + "すべてのブロック後に、質問紙へ回答してください。\n\n"
+            + "スペースキー（SPACE）：準備完了\nエスケープキー（ESC）：中断")
 
 
 def validate_screen_configuration():
@@ -198,7 +202,7 @@ class OperatorDisplay:
             "{}\n"
             "累積正答率: {}\n\n"
             "回答: {}\n"
-            "操作: SPACEで準備段階を進む / ESCで中断"
+            "操作：スペースキー（SPACE）で準備完了／エスケープキー（ESC）で中断"
         ).format(self.stage, self.subject, self.assignment.n_back,
                  self.assignment.session_number, self.assignment.difficulty_level,
                  DIGITS + ZERO_BACK_TARGET if self.assignment.n_back == 0 else DIGITS,
@@ -442,10 +446,10 @@ def main(participant_id=None, session_number=None):
         text.draw()
         win.flip()
         operator.stage = "校正の準備" if stage == "BEFORE_CALIBRATION" else "課題の準備"
-        operator.detail = "準備ができたらSPACEを押してください"
+        operator.detail = "準備ができたらスペースキー（SPACE）を押してください"
         if stage == "AFTER_TLX":
             operator.stage = "完了"
-            operator.detail = "Raw TLX {:.1f} 保存済み。SPACEで終了".format(tlx.score)
+            operator.detail = "Raw TLX {:.1f} 保存済み。スペースキー（SPACE）で終了".format(tlx.score)
         operator.render(force=True)
         progress(stage + ": SPACE to continue; ESC to quit (click task window if needed)")
         timer = core.Clock()
@@ -483,7 +487,7 @@ def main(participant_id=None, session_number=None):
     def calibration_progress(message):
         progress(message)
         operator.stage = "キャリブレーション"
-        operator.detail = message
+        operator.detail = runtime.calibration_message_ja(message)
         operator.render(force=True)
 
     def cleanup_step(label, action):
@@ -541,7 +545,7 @@ def main(participant_id=None, session_number=None):
         with startup.step("KEYBOARD"):
             kb = keyboard.Keyboard()
         with startup.step("PARTICIPANT_STIMULI"):
-            message = visual.TextStim(win, color="white", height=30, wrapWidth=900)
+            message = visual.TextStim(win, font="Yu Gothic", color="white", height=30, wrapWidth=900)
             digit = visual.TextStim(win, color="white", height=86)
             cross = visual.TextStim(win, text="+", color="white", height=48)
         with startup.step("PARTICIPANT_FIRST_FLIP"):
@@ -571,7 +575,7 @@ def main(participant_id=None, session_number=None):
         print("Tobii:", device_info["model"], "| frequency:", device_info["gaze_frequency_hz"])
 
         if not SKIP_CALIBRATION:
-            message.text = "Look at each red dot for calibration.\nSPACE: continue    ESC: exit"
+            message.text = runtime.CALIBRATION_INSTRUCTIONS_JA
             wait_for_space(kb, message, "BEFORE_CALIBRATION")
             progress("CALIBRATION started")
             cal_result = calibrate_tracker(tracker, win, progress=calibration_progress, kb=kb)
@@ -634,7 +638,7 @@ def main(participant_id=None, session_number=None):
         run_raw_tlx(win, operator, tlx,
                     lambda name, detail: stamp(name, 0, detail), lambda: check_escape(kb))
         message.font = "Yu Gothic"
-        message.text = "回答を保存しました。\nご協力ありがとうございました。"
+        message.text = "回答を保存しました。\nご協力ありがとうございました。\n\nスペースキー（SPACE）で終了します。"
         wait_for_space(kb, message, "AFTER_TLX", timeout=None)
         status = "completed"
 
