@@ -31,6 +31,15 @@ class Clock:
 
 class Window:
     def __init__(self, rig, **settings):
+        # Supported Window constructor arguments used by these experiments.
+        # Do not silently accept invented keywords such as `title`: PsychoPy
+        # 2022.2.4 rejects them before it can initialise a real window.
+        supported = {'size', 'fullscr', 'screen', 'units', 'color', 'waitBlanking',
+                     'checkTiming', 'allowGUI', 'winType', 'autoLog'}
+        unsupported = set(settings) - supported
+        if unsupported:
+            raise TypeError("Window.__init__() got an unexpected keyword argument {!r}".format(
+                sorted(unsupported)[0]))
         self.rig = rig
         self.settings = settings
         self.size = settings.get('size', (1280, 720))

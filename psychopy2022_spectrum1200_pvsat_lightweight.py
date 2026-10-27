@@ -477,7 +477,7 @@ def main(participant_id=None, session_number=None):
         operator_win = visual.Window(
             size=OPERATOR_WINDOW_SIZE, fullscr=False, screen=OPERATOR_SCREEN_INDEX,
             units="pix", color="black", waitBlanking=False, checkTiming=False,
-            allowGUI=True, winType="pyglet", title="PVSAT Operator", autoLog=False)
+            allowGUI=True, winType="pyglet", autoLog=False)
         operator_size = [int(x) for x in operator_win.size]
         win = visual.Window(fullscr=True, screen=SCREEN_INDEX, units="pix",
                             color="black", waitBlanking=True, allowGUI=False,
