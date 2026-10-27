@@ -27,6 +27,8 @@ SAVE_CALIBRATION_DATA = True
 RECORD_USER_POSITION_DURING_TASK = False
 QUEUE_CAPACITY = 20000
 START_KEY_TIMEOUT_SECONDS = 120
+STARTUP_DIAGNOSTICS = True  # One-shot stack trace for each slow startup operation
+STARTUP_TRACEBACK_SECONDS = 20.0  # Diagnostic only; does not terminate the process
 SEED = None
 
 import json
@@ -52,6 +54,7 @@ from src.experiment_runtime import (ExperimentAborted, check_escape, json_safe, 
 from src.experiment_assignment import load_arithmetic_assignment, prompt_arithmetic_assignment
 from src.arithmetic_task import OPERAND_RANGES, ArithmeticInput, make_arithmetic_design
 from src.experiment_paths import create_output_prefix
+from src.startup_diagnostics import StartupDiagnostics
 from src.nasa_tlx import RawTLXSession, run_raw_tlx
 
 OUTPUT_DIR = PROJECT_ROOT / "data"
@@ -363,6 +366,10 @@ def main(participant_id=None, session_number=None):
         raise ValueError("MAX_INPUT_DIGITS is too small for this difficulty")
     if QUEUE_CAPACITY < 2:
         raise ValueError("QUEUE_CAPACITY must be >= 2")
+    if type(STARTUP_DIAGNOSTICS) is not bool:
+        raise ValueError("STARTUP_DIAGNOSTICS must be a bool")
+    if not math.isfinite(STARTUP_TRACEBACK_SECONDS) or STARTUP_TRACEBACK_SECONDS <= 0:
+        raise ValueError("STARTUP_TRACEBACK_SECONDS must be finite and positive")
     if type(SYNC_COUNTDOWN_SECONDS) is not int or SYNC_COUNTDOWN_SECONDS < 1:
         raise ValueError("SYNC_COUNTDOWN_SECONDS must be a positive integer")
     if not all(math.isfinite(value) and value > 0
@@ -467,27 +474,55 @@ def main(participant_id=None, session_number=None):
             recorder.close()
             recorder_closed = True
 
+    startup_traceback_path = Path(f"{base}_startup_traceback.log")
+    startup = StartupDiagnostics(progress, startup_traceback_path,
+                                 timeout_seconds=STARTUP_TRACEBACK_SECONDS,
+                                 enabled=STARTUP_DIAGNOSTICS)
     try:
-        # Create the participant window last, so initial keyboard focus is there.
-        operator_win = visual.Window(
-            size=OPERATOR_WINDOW_SIZE, fullscr=False, screen=OPERATOR_SCREEN_INDEX,
-            units="pix", color="black", waitBlanking=False, checkTiming=False,
-            allowGUI=True, winType="pyglet", autoLog=False)
-        operator_size = [int(x) for x in operator_win.size]
-        win = visual.Window(fullscr=True, screen=SCREEN_INDEX, units="pix",
-                            color="black", waitBlanking=True, allowGUI=False,
-                            winType="pyglet")
-        size = [int(x) for x in win.size]
-        kb = keyboard.Keyboard()
-        operator = OperatorDisplay(operator_win, assignment)
-        operator.detail = "Tobii接続を確認しています"
-        operator.render(force=True)
-        message = visual.TextStim(win, font="Yu Gothic", color="white", height=30, wrapWidth=900)
-        stimulus = ArithmeticStimulus(win)
-        cross = visual.TextStim(win, text="+", color="white", height=48)
-        cross.draw()
-        win.flip()
-        check_escape(kb)
+        progress("STARTUP ENVIRONMENT " + json.dumps({
+            "script": str(Path(__file__).resolve()), "python_executable": sys.executable,
+            "python_version": sys.version, "psychopy_version": getattr(psychopy, "__version__", None),
+            "psychopy_file": getattr(psychopy, "__file__", None),
+            "participant_screen": SCREEN_INDEX, "operator_screen": OPERATOR_SCREEN_INDEX,
+            "operator_window_size": OPERATOR_WINDOW_SIZE,
+            "participant_wait_blanking": True, "operator_wait_blanking": False,
+            "startup_diagnostics": STARTUP_DIAGNOSTICS,
+            "startup_traceback_seconds": STARTUP_TRACEBACK_SECONDS,
+        }, ensure_ascii=False))
+        with startup.step("OPERATOR_WINDOW"):
+            operator_win = visual.Window(
+                size=OPERATOR_WINDOW_SIZE, fullscr=False, screen=OPERATOR_SCREEN_INDEX,
+                units="pix", color="black", waitBlanking=False, checkTiming=False,
+                allowGUI=True, winType="pyglet", autoLog=False)
+            operator_size = [int(x) for x in operator_win.size]
+        with startup.step("OPERATOR_STIMULI"):
+            operator = OperatorDisplay(operator_win, assignment)
+            operator.detail = "被験者画面を準備しています"
+        with startup.step("OPERATOR_FIRST_FLIP"):
+            operator.render(force=True)
+        # Draw the operator first; create the participant window last for focus.
+        with startup.step("PARTICIPANT_WINDOW"):
+            win = visual.Window(fullscr=True, screen=SCREEN_INDEX, units="pix",
+                                color="black", waitBlanking=True, allowGUI=False,
+                                winType="pyglet")
+            size = [int(x) for x in win.size]
+        with startup.step("KEYBOARD"):
+            kb = keyboard.Keyboard()
+        with startup.step("PARTICIPANT_STIMULI"):
+            message = visual.TextStim(win, font="Yu Gothic", color="white", height=30, wrapWidth=900)
+            stimulus = ArithmeticStimulus(win)
+            cross = visual.TextStim(win, text="+", color="white", height=48)
+        with startup.step("PARTICIPANT_FIRST_FLIP"):
+            cross.draw()
+            win.flip()
+        with startup.step("KEYBOARD_INITIAL_POLL"):
+            check_escape(kb)
+        with startup.step("OPERATOR_READY_FLIP"):
+            operator.detail = "Tobii接続を確認しています"
+            operator.render(force=True)
+        # End the watchdog before SDK calls, calibration or participant waits.
+        startup.close()
+        progress("STARTUP COMPLETE")
         progress("Detecting Tobii tracker")
         tracker = select_tracker()
         if TOBII_FREQUENCY_HZ is not None:
@@ -580,6 +615,7 @@ def main(participant_id=None, session_number=None):
         print("EXPERIMENT ERROR:", err)
         raise
     finally:
+        cleanup_step("startup diagnostics close", startup.close)
         for record in trials:
             if record["stim_on_us"] != "" and record["response_window_end_us"] == "":
                 stamp("response_window_end", record["trial"], record["stimulus"],
@@ -668,6 +704,9 @@ def main(participant_id=None, session_number=None):
             "operator_fullscreen": False,
             "operator_wait_blanking": False,
             "operator_check_timing": False,
+            "startup_diagnostics_enabled": STARTUP_DIAGNOSTICS,
+            "startup_traceback_seconds": STARTUP_TRACEBACK_SECONDS,
+            "startup_traceback_path": str(startup_traceback_path) if STARTUP_DIAGNOSTICS else None,
             "window_backend": "pyglet",
             "operator_refresh_hz": OPERATOR_REFRESH_HZ,
             "sync_countdown_seconds": SYNC_COUNTDOWN_SECONDS,

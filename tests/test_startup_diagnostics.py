@@ -10,7 +10,9 @@ import unittest
 from unittest.mock import patch
 
 from src.startup_diagnostics import StartupDiagnostics
+from tests.test_arithmetic_experiment import ArithmeticRig
 from tests.test_nback_dual_screen import Rig
+from tests.test_pvsat_experiment import PvsatRig
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -131,10 +133,13 @@ print('AFTER_CLOSE_OK', flush=True)
 
 
 class NbackStartupTests(unittest.TestCase):
+    def load_task(self, root):
+        rig = Rig()
+        return rig, rig.load(root)
+
     def test_startup_order_early_operator_display_and_monitor_closed_before_sdk(self):
         with tempfile.TemporaryDirectory() as root:
-            rig = Rig()
-            task = rig.load(root)
+            rig, task = self.load_task(root)
             created, files = [], []
             real_diagnostics = task.StartupDiagnostics
             def diagnostics(*args, **kwargs):
@@ -198,8 +203,7 @@ class NbackStartupTests(unittest.TestCase):
                   'PARTICIPANT_WINDOW', 'KEYBOARD', 'PARTICIPANT_STIMULI', 'PARTICIPANT_FIRST_FLIP')
         for fail_stage in stages:
             with self.subTest(stage=fail_stage), tempfile.TemporaryDirectory() as root:
-                rig = Rig()
-                task = rig.load(root)
+                rig, task = self.load_task(root)
                 def fail():
                     raise RuntimeError('simulated startup failure')
                 real_window, real_text = task.visual.Window, task.visual.TextStim
@@ -236,8 +240,7 @@ class NbackStartupTests(unittest.TestCase):
 
     def test_disabled_diagnostics_still_shows_startup_and_records_configuration(self):
         with tempfile.TemporaryDirectory() as root:
-            rig = Rig()
-            task = rig.load(root)
+            rig, task = self.load_task(root)
             task.STARTUP_DIAGNOSTICS = False
             with patch('src.startup_diagnostics.faulthandler.dump_traceback_later') as start, \
                     patch('src.startup_diagnostics.faulthandler.cancel_dump_traceback_later') as stop, \
@@ -251,6 +254,18 @@ class NbackStartupTests(unittest.TestCase):
             meta = json.loads(Path(str(rig.recorder.base) + '_metadata.json').read_text(encoding='utf-8'))
             self.assertFalse(meta['startup_diagnostics_enabled'])
             self.assertIsNone(meta['startup_traceback_path'])
+
+
+class ArithmeticStartupTests(NbackStartupTests):
+    def load_task(self, root):
+        rig = ArithmeticRig()
+        return rig, rig.load_arithmetic(root)
+
+
+class PvsatStartupTests(NbackStartupTests):
+    def load_task(self, root):
+        rig = PvsatRig()
+        return rig, rig.load_pvsat(root)
 
 
 if __name__ == '__main__':
