@@ -6,7 +6,7 @@ import random
 from .demo_tasks import DemoAnswer, demo_spec, expected_label, guide_rows, practice_rows
 
 
-INPUT_KEYS = (['left', 'right', 'space', 'escape', 'r', 'g', 'backspace', 'delete', 'return', 'num_enter']
+INPUT_KEYS = (['left', 'right', 'space', 'escape', 'r', 'g', 'return', 'num_enter']
               + list('0123456789') + ['num_' + digit for digit in '0123456789'])
 
 
@@ -217,8 +217,8 @@ class DemoSession:
 
     def run(self):
         controls = ('\n\nナムロック（NumLock）を有効にしてください。\n'
-                    'バックスペースキー（Backspace）：1文字削除\nデリートキー（Delete）：全削除\n'
-                    'エンターキー（Enter）での確定は不要です。' if self.spec.task == 'arithmetic' else '')
+                    'エンターキー（Enter）：全消去（テンキーのEnterも使用できます）\n'
+                    '確定操作は不要です。' if self.spec.task == 'arithmetic' else '')
         self.page('intro', '{}のデモ'.format(self.spec.title),
                   '{}\n\n{}\n\nまず、正解と理由を見ながら回答します。\n'
                   '次に、正解を隠して20秒間練習します。\n最後に答え合わせをします。{}'.format(
@@ -229,7 +229,7 @@ class DemoSession:
                 self.guided()
             extra = ('ナムロック（NumLock）を有効にしてください。\n'
                      '1問5秒で自動採点します。切り替わるまで修正できます。\n'
-                     'エンターキー（Enter）による確定は不要です。' if self.spec.task == 'arithmetic' else
+                     'エンターキー（Enter）：全消去（テンキーのEnterも使用できます）' if self.spec.task == 'arithmetic' else
                      '数字0.5秒＋注視点{}秒、{}秒間隔で進みます。\n'.format(
                          self.spec.interval - self.spec.stimulus_seconds, self.spec.interval)
                      + ('最初の数字には左矢印で回答してください。' if self.spec.task == 'nback' else

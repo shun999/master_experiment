@@ -71,10 +71,7 @@ class ArithmeticInput:
             if self.first_input_rt_seconds is None:
                 self.first_input_rt_seconds = round(rt, 6)
             action = "append"
-        elif key_name == "backspace" and self.text:
-            self.text = self.text[:-1]
-            action = "backspace"
-        elif key_name == "delete" and self.text:
+        elif key_name in ("return", "num_enter") and self.text:
             self.text = ""
             action = "clear"
         else:

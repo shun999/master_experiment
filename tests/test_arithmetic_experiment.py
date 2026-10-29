@@ -50,9 +50,11 @@ class NumericKeyboard:
         mode = (self.rig.trial - 1) % 4
         if mode == 0:
             script = [('num_' + digit, .2 + i * .2) for i, digit in enumerate(answer)]
-            script.append(('return', 1.5))
+            script.extend([('backspace', 1.3), ('delete', 1.5)])
         elif mode == 1:
-            script = [('num_9', .2), ('backspace', .4), ('num_1', .6), ('delete', 3)]
+            script = [('num_9', .2), ('backspace', .4), ('num_1', .6), ('delete', .8),
+                      ('return', 1), ('num_enter', 1.1), ('num_2', 1.2),
+                      ('num_enter', 3), ('return', 3.1)]
             script.extend(('num_' + digit, 3.2 + i * .2) for i, digit in enumerate(answer.zfill(4)))
         elif mode == 2:
             script = []
@@ -63,7 +65,8 @@ class NumericKeyboard:
             deadline = (self.rig.set_anchor + block * (task.N_TRIALS * task.TRIAL_SECONDS + task.REST_SECONDS)
                         + local * task.TRIAL_SECONDS - self.clock.origin)
             script = [('num_' + digit, .2 + i * .2) for i, digit in enumerate(answer[:-1])]
-            script.extend([('num_' + answer[-1], deadline - .00001), ('num_9', deadline + .00001)])
+            script.extend([('num_' + answer[-1], deadline - .00001),
+                           ('return', deadline + .00001), ('num_enter', deadline + .00002)])
         keys = []
         for index, (name, rt) in enumerate(script):
             if index not in self.emitted and rt <= self.clock.getTime() and name in keyList:
@@ -227,10 +230,17 @@ class ArithmeticExperimentTests(unittest.TestCase):
                 self.assertEqual(int(row['answer_value']), int(row['correct_answer']))
             if i % 4 == 1:
                 self.assertEqual(len(row['answer_text']), 4)
+                self.assertAlmostEqual(float(row['first_input_rt_seconds']), .2)
                 self.assertAlmostEqual(float(row['last_edit_rt_seconds']), 3.8)
-        self.assertTrue(any(row['action'] == 'backspace' for row in inputs))
-        self.assertTrue(any(row['action'] == 'clear' for row in inputs))
-        self.assertTrue(all(row['key_name'] != 'return' for row in inputs))
+        clears = [row for row in inputs if row['action'] == 'clear']
+        self.assertEqual(len(clears), 18)
+        self.assertEqual({row['key_name'] for row in clears}, {'return', 'num_enter'})
+        self.assertTrue(all(row['text_after'] == '' for row in clears))
+        self.assertEqual({float(row['rt_seconds']) for row in clears}, {1, 3})
+        self.assertTrue(all(row['key_name'] not in ('backspace', 'delete') for row in inputs))
+        self.assertTrue(all(row['action'] in ('append', 'clear') for row in inputs))
+        self.assertTrue(all(key in metadata['input_keys'] for key in ('return', 'num_enter')))
+        self.assertTrue(all(key not in metadata['input_keys'] for key in ('backspace', 'delete')))
         self.assertEqual(tlx[0]['task'], 'arithmetic')
         self.assertEqual(tlx[0]['blocks'], '3')
         self.assertEqual(tlx[0]['n_back'], '')

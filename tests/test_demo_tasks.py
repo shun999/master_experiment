@@ -59,14 +59,21 @@ class DemoTaskTests(unittest.TestCase):
 
     def test_keypad_editing_matches_production_rules_without_guide_deadline(self):
         answer = DemoAnswer('arithmetic', guide_rows('arithmetic')[1])
-        for name in ('num_9', 'backspace', '1', 'delete', 'num_0', 'num_0', 'num_1', 'num_3'):
+        for name in ('num_9', 'return', '1', 'num_enter', 'num_0', 'num_0', 'num_1', 'num_3'):
             self.assertTrue(answer.press(name, 500))
         self.assertEqual(answer.text, '0013')
         self.assertTrue(answer.correct)
         self.assertFalse(answer.press('num_7', 501))
-        self.assertFalse(answer.press('return', 501))
-        self.assertFalse(answer.press('num_enter', 501))
-        self.assertTrue(answer.press('delete', 501))
+        for name in ('backspace', 'delete'):
+            self.assertFalse(answer.press(name, 501))
+            self.assertEqual(answer.text, '0013')
+        self.assertTrue(answer.press('return', 501))
+        self.assertEqual(answer.response_label, '未回答')
+        self.assertFalse(answer.press('num_enter', 502))
+        self.assertTrue(answer.press('1', 503))
+        self.assertTrue(answer.press('3', 504))
+        self.assertTrue(answer.correct)
+        self.assertTrue(answer.press('num_enter', 505))
         self.assertFalse(answer.correct)
 
     def test_practice_uses_first_arrow_and_timestamp_deadline(self):
@@ -81,6 +88,14 @@ class DemoTaskTests(unittest.TestCase):
         self.assertFalse(arithmetic.press('7', 5))
         self.assertFalse(arithmetic.correct)
         self.assertEqual(arithmetic.response_label, '未回答')
+        for enter in ('return', 'num_enter'):
+            self.assertTrue(arithmetic.press('7', .2))
+            for rt in (-.1, float('nan'), float('inf'), 5, 5.001):
+                self.assertFalse(arithmetic.press(enter, rt))
+                self.assertTrue(arithmetic.correct)
+            self.assertTrue(arithmetic.press(enter, 4.999999))
+            self.assertFalse(arithmetic.correct)
+            self.assertEqual(arithmetic.response_label, '未回答')
 
 
 if __name__ == '__main__':

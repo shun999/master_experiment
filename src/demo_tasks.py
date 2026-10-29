@@ -103,7 +103,7 @@ class DemoAnswer:
     """Unlimited guide editing or timestamp-bounded practice responses.
 
     Numeric editing follows the production task: 4 digits, leading zeros,
-    Backspace, Delete; Enter has no effect. No research RT data is recorded.
+    Enter clears all digits. No research RT data is recorded.
     """
 
     def __init__(self, task, row, deadline=None):
@@ -138,9 +138,7 @@ class DemoAnswer:
         digit = name[4:] if name.startswith('num_') else name
         if len(digit) == 1 and digit in '0123456789' and len(self.text) < 4:
             self.text += digit
-        elif name == 'backspace' and self.text:
-            self.text = self.text[:-1]
-        elif name == 'delete' and self.text:
+        elif name in ('return', 'num_enter') and self.text:
             self.text = ''
         else:
             return False

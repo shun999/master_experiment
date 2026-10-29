@@ -70,7 +70,7 @@ TRIAL_COLUMNS = [
 INPUT_COLUMNS = ["trial", "block", "trial_in_block", "key_name", "action", "text_after",
                  "rt_seconds", "system_time_stamp_us"]
 INPUT_KEYS = (["num_" + digit for digit in "0123456789"] + list("0123456789")
-              + ["backspace", "delete", "escape"])
+              + ["return", "num_enter", "escape"])
 
 
 def validate_screen_configuration():
@@ -106,9 +106,8 @@ def participant_instructions(assignment):
     return ("暗算課題（{}桁 + {}桁）\n\n"
             "テンキーで答えを入力してください。\n"
             "ナムロック（NumLock）を有効にしてください。\n"
-            "バックスペースキー（Backspace）：1文字削除\n"
-            "デリートキー（Delete）：全削除\n"
-            "エンターキー（Enter）での確定は不要です。\n"
+            "エンターキー（Enter）：全消去（テンキーのEnterも使用できます）\n"
+            "確定操作は不要です。\n"
             "{}秒後に自動採点します。切り替わるまで修正できます。\n"
             "1ブロック{}問、課題{}秒と休憩{}秒を{}回実施します。\n"
             "休憩中は＋を見てください。最後に質問紙へ回答します。\n\n"

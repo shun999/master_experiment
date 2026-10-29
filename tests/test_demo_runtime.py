@@ -57,9 +57,10 @@ class DemoKeyboard:
             if not row['response_required']:
                 script = [('right', .05), ('space', .1)]
             elif self.rig.task == 'arithmetic':
-                script = [('space', .05), ('num_9', .1), ('backspace', .15), ('num_1', .2), ('delete', .25)]
-                script += [('num_' + digit, .3 + index * .05) for index, digit in enumerate(str(row['expected']))]
-                script += [('return', .6), ('space', .7)]
+                script = [('space', .05), ('num_9', .1), ('backspace', .15), ('return', .2),
+                          ('num_1', .25), ('delete', .28), ('num_enter', .3)]
+                script += [('num_' + digit, .4 + index * .05) for index, digit in enumerate(str(row['expected']))]
+                script += [('space', .7)]
             else:
                 opposite = 'left' if row['expected'] == 'right' else 'right'
                 script = [('space', .05), (opposite, .1), (row['expected'], .2), ('space', .3)]
@@ -69,16 +70,17 @@ class DemoKeyboard:
             if self.rig.task == 'arithmetic':
                 answer = str(row['expected'])
                 if local == 1:
-                    script = [('num_9', .1), ('backspace', .2)]
+                    script = [('num_9', .1), ('backspace', .15), ('return', .2),
+                              ('num_1', .23), ('delete', .25), ('num_enter', .27)]
                     script += [('num_' + digit, .3 + i * .1) for i, digit in enumerate(answer)]
-                    script += [('return', .6)]
                 elif local == 2:
                     script = [('num_0', .2)]
                 elif local == 3:
                     script = []
                 else:
                     script = [('num_' + digit, .2 + i * .1) for i, digit in enumerate(answer[:-1])]
-                    script += [('num_' + answer[-1], deadline - .00001), ('num_9', deadline + .00001)]
+                    script += [('num_' + answer[-1], deadline - .00001),
+                               ('return', deadline + .00001), ('num_enter', deadline + .00002)]
             else:
                 expected = row['expected']
                 opposite = 'left' if expected == 'right' else 'right'
@@ -213,6 +215,13 @@ class DemoRuntimeTests(unittest.TestCase):
                     self.assertTrue(any('違います' in frame[4] for frame in rig.frames))
                 self.assertTrue(any(frame[1] == 'review' and '自分の回答' in frame[4] for frame in rig.frames))
                 self.assertTrue(all(stim.settings['font'] in ('Yu Gothic', 'Arial') for stim in rig.texts))
+                if task == 'arithmetic':
+                    for phase in ('intro', 'practice_ready'):
+                        explanation = '\n'.join(frame[4] for frame in rig.frames if frame[1] == phase)
+                        self.assertIn('エンターキー（Enter）：全消去', explanation)
+                        self.assertIn('テンキーのEnterも使用できます', explanation)
+                        self.assertNotIn('Backspace', explanation)
+                        self.assertNotIn('Delete', explanation)
 
     def test_r_repeats_only_practice_g_restarts_guide_with_fresh_state(self):
         for task in ('nback', 'arithmetic', 'pvsat'):

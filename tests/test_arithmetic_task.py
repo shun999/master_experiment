@@ -33,7 +33,7 @@ class ArithmeticLogicTests(unittest.TestCase):
 
     def test_numeric_input_editing_and_leading_zeros(self):
         state = ArithmeticInput()
-        for key, rt in [('num_0', .1), ('0', .2), ('num_1', .3), ('num_9', .4), ('backspace', .5), ('num_2', .6)]:
+        for key, rt in [('num_0', .1), ('0', .2), ('num_1', .3), ('num_2', .6)]:
             self.assertIsNotNone(state.edit(key, rt))
         final = state.snapshot(12, completed=True)
         self.assertEqual(final['answer_text'], '0012')
@@ -43,13 +43,57 @@ class ArithmeticLogicTests(unittest.TestCase):
         self.assertEqual(final['last_edit_rt_seconds'], .6)
         self.assertIsNone(state.edit('num_3', .7))
         self.assertEqual(state.text, '0012')
-        self.assertEqual(state.edit('delete', .8), 'clear')
+        self.assertEqual(state.edit('return', .8), 'clear')
         omitted = state.snapshot(12, completed=True)
         self.assertEqual(omitted['unanswered'], 1)
         self.assertIsNone(omitted['answer_value'])
         self.assertEqual(omitted['correct'], 0)
         self.assertEqual(omitted['first_input_rt_seconds'], .1)
         self.assertEqual(omitted['last_edit_rt_seconds'], .8)
+
+    def test_only_enter_clears_and_empty_enter_preserves_timestamps(self):
+        for enter in ('return', 'num_enter'):
+            with self.subTest(enter=enter):
+                state = ArithmeticInput()
+                initial = state.snapshot(2)
+                self.assertIsNone(state.edit(enter, .1))
+                self.assertEqual(state.snapshot(2), initial)
+                state.edit('num_9', .2)
+                state.edit('num_1', .4)
+                before = state.snapshot(2)
+                for key in ('backspace', 'delete'):
+                    self.assertIsNone(state.edit(key, .6))
+                    self.assertEqual(state.snapshot(2), before)
+                self.assertEqual(state.edit(enter, .8), 'clear')
+                cleared = state.snapshot(2, completed=True)
+                self.assertEqual(cleared['answer_text'], '')
+                self.assertEqual(cleared['unanswered'], 1)
+                self.assertEqual(cleared['correct'], 0)
+                self.assertEqual(cleared['first_input_rt_seconds'], .2)
+                self.assertEqual(cleared['last_edit_rt_seconds'], .8)
+                self.assertIsNone(state.edit(enter, .9))
+                self.assertEqual(state.snapshot(2, completed=True), cleared)
+                self.assertEqual(state.edit('num_2', 1), 'append')
+                final = state.snapshot(2, completed=True)
+                self.assertEqual(final['correct'], 1)
+                self.assertEqual(final['first_input_rt_seconds'], .2)
+                self.assertEqual(final['last_edit_rt_seconds'], 1)
+
+    def test_enter_clear_respects_timestamp_deadline(self):
+        for enter in ('return', 'num_enter'):
+            with self.subTest(enter=enter):
+                state = ArithmeticInput()
+                state.edit('num_2', .2)
+                before = state.snapshot(2)
+                for rt in (-.1, float('nan'), float('inf'), 5, 5.001):
+                    self.assertIsNone(state.edit(enter, rt))
+                    self.assertEqual(state.snapshot(2), before)
+                self.assertEqual(state.edit(enter, 4.999999), 'clear')
+                final = state.snapshot(2, completed=True)
+                self.assertEqual(final['correct'], 0)
+                self.assertEqual(final['unanswered'], 1)
+                self.assertEqual(final['first_input_rt_seconds'], .2)
+                self.assertEqual(final['last_edit_rt_seconds'], 4.999999)
 
     def test_deadline_ignored_keys_omission_and_partial_result(self):
         state = ArithmeticInput()
@@ -58,7 +102,7 @@ class ArithmeticLogicTests(unittest.TestCase):
         self.assertEqual(state.snapshot(2, completed=True)['unanswered'], 1)
         self.assertEqual(state.edit('num_2', 4.999999), 'append')
         self.assertIsNone(state.edit('num_3', 5))
-        self.assertIsNone(state.edit('delete', 5.001))
+        self.assertIsNone(state.edit('return', 5.001))
         self.assertIsNone(state.edit('num_4', -.1))
         self.assertEqual(state.snapshot(2, completed=True)['correct'], 1)
         self.assertEqual(state.snapshot(2)['correct'], '')
