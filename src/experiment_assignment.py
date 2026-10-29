@@ -6,6 +6,8 @@ from pathlib import Path
 import re
 from typing import NamedTuple
 
+from .arithmetic_task import OPERAND_DIGIT_PAIRS
+
 
 NBACK_BY_DIFFICULTY = {1: 0, 2: 1, 3: 2, 4: 3}
 NBACK_COLUMNS = tuple("nback_{}".format(i) for i in range(1, 5))
@@ -36,8 +38,15 @@ class ArithmeticAssignment(NamedTuple):
         return "arithmetic_{}".format(self.session_number)
 
     @property
-    def operand_digits(self):
-        return self.difficulty_level
+    def operand_digit_pair(self):
+        return OPERAND_DIGIT_PAIRS[self.difficulty_level]
+
+    @property
+    def condition_label(self):
+        first, second = self.operand_digit_pair
+        if first != second:
+            return "{}桁と{}桁・左右ランダム".format(first, second)
+        return "{}桁 + {}桁".format(first, second)
 
 
 class PvsatAssignment(NamedTuple):

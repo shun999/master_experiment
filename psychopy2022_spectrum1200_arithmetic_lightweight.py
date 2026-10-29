@@ -103,7 +103,7 @@ class BlockSyncDisplay(runtime.BlockSyncDisplay):
 
 
 def participant_instructions(assignment):
-    return ("暗算課題（{}桁 + {}桁）\n\n"
+    return ("暗算課題（{}）\n\n"
             "テンキーで答えを入力してください。\n"
             "ナムロック（NumLock）を有効にしてください。\n"
             "エンターキー（Enter）：全消去（テンキーのEnterも使用できます）\n"
@@ -112,7 +112,7 @@ def participant_instructions(assignment):
             "1ブロック{}問、課題{}秒と休憩{}秒を{}回実施します。\n"
             "休憩中は＋を見てください。最後に質問紙へ回答します。\n\n"
             "スペースキー（SPACE）：準備完了\nエスケープキー（ESC）：中断").format(
-                assignment.operand_digits, assignment.operand_digits, TRIAL_SECONDS,
+                assignment.condition_label, TRIAL_SECONDS,
                 N_TRIALS, N_TRIALS * TRIAL_SECONDS, REST_SECONDS, N_BLOCKS)
 
 
@@ -185,7 +185,7 @@ class OperatorDisplay:
                 last["trial"], last["answer_text"] or "未回答",
                 "正解" if last["correct"] else "不正解", first, edit)
         a = self.assignment
-        body = ("段階: {}\n協力者ID: {}    暗算: {}桁 + {}桁\n"
+        body = ("段階: {}\n協力者ID: {}    暗算: {}\n"
                 "実験回数（セット）: {}/3    難易度番号: {}\n"
                 "1問{}秒    繰り上がり有・無: 各{}問/ブロック\n"
                 "取得周波数: {} Hz\n"
@@ -193,7 +193,7 @@ class OperatorDisplay:
                 "完了: {}/{}    セット経過: {}秒    休憩残り: {}\n"
                 "現在の式: {}\n入力（未確定）: {}\n{}\n累積正答率: {}\n"
                 "操作：スペースキー（SPACE）で準備完了／エスケープキー（ESC）で中断").format(
-                    self.stage, a.participant_id, a.operand_digits, a.operand_digits,
+                    self.stage, a.participant_id, a.condition_label,
                     a.session_number, a.difficulty_level, TRIAL_SECONDS, N_TRIALS // 2,
                     self.gaze_frequency if self.gaze_frequency is not None else "未確認",
                     self.block, N_BLOCKS, self.trial, N_TRIALS, self.completed, N_TRIALS * N_BLOCKS,
@@ -363,7 +363,10 @@ def main(participant_id=None, session_number=None):
     subject, difficulty = assignment.participant_id, assignment.difficulty_level
     if difficulty not in OPERAND_RANGES or type(N_TRIALS) is not int or N_TRIALS < 2 or N_TRIALS % 2:
         raise ValueError("Use difficulty 1..3 and an even positive question count")
-    if type(MAX_INPUT_DIGITS) is not int or MAX_INPUT_DIGITS < len(str(2 * OPERAND_RANGES[difficulty][1])):
+    if difficulty == 3 and N_TRIALS % 4:
+        raise ValueError("Difficulty 3 requires a question count that is a multiple of 4")
+    max_answer = sum(upper for _, upper in OPERAND_RANGES[difficulty])
+    if type(MAX_INPUT_DIGITS) is not int or MAX_INPUT_DIGITS < len(str(max_answer)):
         raise ValueError("MAX_INPUT_DIGITS is too small for this difficulty")
     if QUEUE_CAPACITY < 2:
         raise ValueError("QUEUE_CAPACITY must be >= 2")
@@ -678,8 +681,8 @@ def main(participant_id=None, session_number=None):
             "counterbalance_csv": str(COUNTERBALANCE_CSV),
             "output_directory": str(base.parent), "output_prefix": str(base),
             "counterbalance_column": assignment.column,
-            "operand_digits": assignment.operand_digits,
-            "operand_range": OPERAND_RANGES[difficulty],
+            "operand_digit_pair": assignment.operand_digit_pair,
+            "operand_ranges": OPERAND_RANGES[difficulty],
             "carry_questions_per_block": N_TRIALS // 2,
             "no_carry_questions_per_block": N_TRIALS // 2,
             "max_input_digits": MAX_INPUT_DIGITS,

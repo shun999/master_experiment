@@ -6,30 +6,59 @@ from src.arithmetic_task import ArithmeticInput, OPERAND_RANGES, count_carries, 
 class ArithmeticLogicTests(unittest.TestCase):
     def test_carry_counts(self):
         for left, right, expected in [(1, 2, 0), (5, 5, 1), (18, 27, 1), (59, 41, 2),
-                                      (95, 17, 2), (123, 456, 0), (999, 999, 3), (0, 0, 0)]:
+                                      (95, 17, 2), (123, 45, 0), (999, 99, 3), (0, 0, 0)]:
             with self.subTest(left=left, right=right):
                 self.assertEqual(count_carries(left, right), expected)
 
     def test_balanced_ranges_unique_pairs_and_seeds(self):
-        for level in (1, 2, 3):
-            low, high = OPERAND_RANGES[level]
+        for level, ranges in ((1, ((1, 9), (1, 9))), (2, ((10, 99), (10, 99))),
+                              (3, ((100, 999), (10, 99)))):
+            self.assertEqual(OPERAND_RANGES[level], ranges)
+            (first_low, first_high), (second_low, second_high) = ranges
             for seed in range(20):
                 rows = make_arithmetic_design(level, 12, seed)
                 self.assertEqual(rows, make_arithmetic_design(level, 12, seed))
                 self.assertEqual(len(rows), 12)
                 self.assertEqual(sum(row['has_carry'] for row in rows), 6)
                 self.assertEqual(len({tuple(sorted((row['operand_a'], row['operand_b']))) for row in rows}), 12)
+                if level == 3:
+                    for left_is_three_digits in (False, True):
+                        group = [row for row in rows if (row['operand_a'] >= 100) == left_is_three_digits]
+                        self.assertEqual(len(group), 6)
+                        self.assertEqual(sum(row['has_carry'] for row in group), 3)
                 for index, row in enumerate(rows, 1):
                     self.assertEqual(row['trial'], index)
-                    self.assertTrue(low <= row['operand_a'] <= high and low <= row['operand_b'] <= high)
-                    self.assertEqual(row['correct_answer'], row['operand_a'] + row['operand_b'])
+                    left, right = row['operand_a'], row['operand_b']
+                    first, second = (right, left) if level == 3 and left < 100 else (left, right)
+                    self.assertTrue(first_low <= first <= first_high and second_low <= second <= second_high)
+                    self.assertEqual(row['stimulus'], '{} + {} = ?'.format(left, right))
+                    self.assertEqual(row['correct_answer'], left + right)
+                    self.assertEqual(row['carry_count'], count_carries(left, right))
                     self.assertEqual(bool(row['carry_count']), bool(row['has_carry']))
         self.assertNotEqual(make_arithmetic_design(1, 12, 1), make_arithmetic_design(1, 12, 2))
+        self.assertNotEqual(make_arithmetic_design(3, 12, 1), make_arithmetic_design(3, 12, 2))
+
+    def test_level3_balances_each_orientation_and_carry_group_at_other_counts(self):
+        for count in (4, 8, 16):
+            rows = make_arithmetic_design(3, count, 10)
+            for left_is_three_digits in (False, True):
+                for carry in (False, True):
+                    group = [row for row in rows if (row['operand_a'] >= 100) == left_is_three_digits
+                             and bool(row['has_carry']) == carry]
+                    self.assertEqual(len(group), count // 4)
 
     def test_invalid_design_parameters(self):
-        for level, count in [(0, 12), (4, 12), (1, 0), (1, 11), (1, 42)]:
+        for level, count in [(0, 12), (4, 12), (1, 0), (1, 11), (1, 42), (3, 2), (3, 6), (3, 10)]:
             with self.subTest(level=level, count=count), self.assertRaises(ValueError):
                 make_arithmetic_design(level, count, 0)
+
+    def test_four_digit_input_for_maximum_level3_answer(self):
+        state = ArithmeticInput()
+        for index, digit in enumerate('1098'):
+            self.assertEqual(state.edit('num_' + digit, .2 + index * .2), 'append')
+        final = state.snapshot(999 + 99, completed=True)
+        self.assertEqual(final['answer_value'], 1098)
+        self.assertEqual(final['correct'], 1)
 
     def test_numeric_input_editing_and_leading_zeros(self):
         state = ArithmeticInput()

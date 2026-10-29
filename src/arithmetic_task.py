@@ -5,7 +5,12 @@ import math
 import random
 
 
-OPERAND_RANGES = {1: (1, 9), 2: (10, 99), 3: (100, 999)}
+# Canonical addend definitions, not fixed left/right positions.
+OPERAND_DIGIT_PAIRS = {1: (1, 1), 2: (2, 2), 3: (3, 2)}
+OPERAND_RANGES = {
+    level: tuple((10 ** (digits - 1), 10 ** digits - 1) for digits in pair)
+    for level, pair in OPERAND_DIGIT_PAIRS.items()
+}
 
 
 def count_carries(left, right):
@@ -20,22 +25,28 @@ def count_carries(left, right):
 
 
 def make_arithmetic_design(difficulty, count, seed):
+    """Balance carry status; level 3 also balances both addend orientations."""
     if type(difficulty) is not int or difficulty not in OPERAND_RANGES or type(count) is not int or count < 2 or count % 2:
         raise ValueError("Use difficulty 1..3 and an even positive question count")
+    if difficulty == 3 and count % 4:
+        raise ValueError("Difficulty 3 requires a question count that is a multiple of 4")
     if difficulty == 1 and count // 2 > 20:
         raise ValueError("Too many unique one-digit questions without carry")
     rng = random.Random(seed)
-    low, high = OPERAND_RANGES[difficulty]
+    first_range, second_range = OPERAND_RANGES[difficulty]
     rows, seen = [], set()
     for needs_carry in (False, True):
         selected = 0
         for _ in range(10000):
-            left, right = rng.randint(low, high), rng.randint(low, high)
+            left, right = rng.randint(*first_range), rng.randint(*second_range)
             carries = count_carries(left, right)
             pair = tuple(sorted((left, right)))
             if bool(carries) != needs_carry or pair in seen:
                 continue
             seen.add(pair)
+            # Half of each carry group is reversed before shuffling all rows.
+            if difficulty == 3 and selected >= count // 4:
+                left, right = right, left
             rows.append({"operand_a": left, "operand_b": right,
                          "stimulus": "{} + {} = ?".format(left, right),
                          "correct_answer": left + right,

@@ -37,10 +37,12 @@ class JapaneseInstructionsTests(unittest.TestCase):
     def test_arithmetic_and_pvsat_keep_condition_specific_rules(self):
         with tempfile.TemporaryDirectory() as root:
             arithmetic = ArithmeticRig().load_arithmetic(root)
-            for subject, digits in (('AFX', 1), ('BKR', 2), ('DNV', 3)):
+            for subject, condition in (('AFX', '1桁 + 1桁'), ('BKR', '2桁 + 2桁'),
+                                       ('DNV', '3桁と2桁・左右ランダム')):
                 assignment = arithmetic.load_arithmetic_assignment(arithmetic.COUNTERBALANCE_CSV, subject, 1)
                 text = arithmetic.participant_instructions(assignment)
-                self.assertIn('暗算課題（{}桁 + {}桁）'.format(digits, digits), text)
+                self.assertIn('暗算課題（{}）'.format(condition), text)
+                self.assertNotIn('3桁 + 3桁', text)
                 self.assertIn('ナムロック（NumLock）を有効', text)
                 self.assertIn('エンターキー（Enter）：全消去', text)
                 self.assertIn('テンキーのEnterも使用できます', text)

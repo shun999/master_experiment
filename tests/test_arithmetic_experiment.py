@@ -145,7 +145,8 @@ class ArithmeticExperimentTests(unittest.TestCase):
             self.assertEqual(metadata['participant'], 'AFX')
             self.assertEqual(metadata['session_number'], 2)
             self.assertEqual(metadata['difficulty_level'], 2)
-            self.assertEqual(metadata['operand_digits'], 2)
+            self.assertEqual(metadata['operand_digit_pair'], [2, 2])
+            self.assertEqual(metadata['operand_ranges'], [[10, 99], [10, 99]])
             self.assertEqual(metadata['counterbalance_column'], 'arithmetic_2')
             self.assertEqual(metadata['completed_blocks'], 3)
             self.assertTrue(all(10 <= int(row['operand_a']) <= 99 and 10 <= int(row['operand_b']) <= 99 for row in trials))
@@ -193,7 +194,10 @@ class ArithmeticExperimentTests(unittest.TestCase):
             labels = TrialLabels(self.recorder_prefix(rig), metadata)
         self.assertEqual(metadata['task'], 'arithmetic')
         self.assertEqual(metadata['difficulty_level'], 3)
-        self.assertEqual(metadata['operand_digits'], 3)
+        self.assertEqual(metadata['operand_digit_pair'], [3, 2])
+        self.assertEqual(metadata['operand_ranges'], [[100, 999], [10, 99]])
+        self.assertNotIn('operand_digits', metadata)
+        self.assertNotIn('operand_range', metadata)
         self.assertEqual(metadata['requested_blocks'], 3)
         self.assertEqual(metadata['completed_blocks'], 3)
         self.assertEqual(metadata['completed_trials'], 36)
@@ -216,7 +220,17 @@ class ArithmeticExperimentTests(unittest.TestCase):
             rows = [row for row in trials if int(row['block']) == block]
             self.assertEqual(sum(int(row['has_carry']) for row in rows), 6)
             self.assertEqual(len(rows), 12)
+            self.assertEqual(len({tuple(sorted((int(row['operand_a']), int(row['operand_b'])))) for row in rows}), 12)
+            for left_is_three_digits in (False, True):
+                oriented = [row for row in rows if (int(row['operand_a']) >= 100) == left_is_three_digits]
+                self.assertEqual(len(oriented), 6)
+                self.assertEqual(sum(int(row['has_carry']) for row in oriented), 3)
             for row in rows:
+                left, right = int(row['operand_a']), int(row['operand_b'])
+                large, small = sorted((left, right), reverse=True)
+                self.assertTrue(100 <= large <= 999 and 10 <= small <= 99)
+                self.assertEqual(int(row['correct_answer']), left + right)
+                self.assertEqual(row['stimulus'], '{} + {} = ?'.format(left, right))
                 self.assertAlmostEqual((int(row['response_window_end_us']) - int(row['stim_on_us'])) / 1e6, 5, delta=.04)
                 self.assertEqual(row['stim_off_us'], row['response_window_end_us'])
                 self.assertEqual(row['auto_submit_us'], row['response_window_end_us'])
@@ -254,6 +268,10 @@ class ArithmeticExperimentTests(unittest.TestCase):
         self.assertTrue(rig.windows[1].settings['waitBlanking'])
         self.assertEqual(len([event for event in events if event['event'] == 'sync_start_cue']), 3)
         self.assertLess(metadata['participant_frame_timing']['max_interval_seconds'], .04)
+        for window in rig.windows:
+            displayed = '\n'.join(text for _, frame, _ in window.history for text in frame)
+            self.assertIn('3桁と2桁・左右ランダム', displayed)
+            self.assertNotIn('3桁 + 3桁', displayed)
 
     def recorder_prefix(self, rig):
         return rig.recorder.base
@@ -285,7 +303,7 @@ class ArithmeticExperimentTests(unittest.TestCase):
             for session in range(1, 4):
                 a = load_arithmetic_assignment(csv_path, row['participant_id'], session)
                 self.assertEqual(a.difficulty_level, int(row['arithmetic_{}'.format(session)]))
-                self.assertEqual(a.operand_digits, a.difficulty_level)
+                self.assertEqual(a.operand_digit_pair, {1: (1, 1), 2: (2, 2), 3: (3, 2)}[a.difficulty_level])
                 self.assertEqual(a.column, 'arithmetic_{}'.format(session))
         dialogs = Dialogs([[' afx ', '2']])
         psychopy = types.ModuleType('psychopy')
@@ -313,6 +331,20 @@ class ArithmeticExperimentTests(unittest.TestCase):
             self.assertFalse(task.OUTPUT_DIR.exists())
             self.assertIsNone(rig.recorder)
             self.assertEqual(rig.windows, [])
+
+    def test_invalid_level3_count_and_digit_limit_do_not_start(self):
+        for setting, value, error in (('N_TRIALS', 6, 'multiple of 4'),
+                                      ('MAX_INPUT_DIGITS', 3, 'too small')):
+            with self.subTest(setting=setting), tempfile.TemporaryDirectory() as root:
+                rig = ArithmeticRig()
+                task = rig.load_arithmetic(root)
+                task.OUTPUT_DIR = Path(root) / 'output'
+                setattr(task, setting, value)
+                with self.assertRaisesRegex(ValueError, error):
+                    task.main('DNV', 1)
+                self.assertFalse(task.OUTPUT_DIR.exists())
+                self.assertIsNone(rig.recorder)
+                self.assertEqual(rig.windows, [])
 
     def test_setup_and_cleanup_errors_save_data_and_close_windows(self):
         for options in ({'fail_window': 1}, {'unsubscribe_error': True}):
