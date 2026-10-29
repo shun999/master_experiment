@@ -104,20 +104,12 @@ def make_design(n, count, seed):
 def participant_instructions(assignment):
     n = assignment.n_back
     if n == 0:
-        rule = (f"「{ZERO_BACK_TARGET}」が表示されたら、右矢印キーです。\n"
-                "0〜9の数字が表示されたら、左矢印キーです。\n")
+        rule = f"「{ZERO_BACK_TARGET}」：右矢印／数字：左矢印\n"
     else:
-        rule = (f"今の数字が{n}個前の数字と同じなら、右矢印キーです。\n"
-                "異なる数字なら、左矢印キーです。\n"
-                f"各ブロックの最初の{n}試行は、左矢印キーで回答します。\n")
-    active_seconds = N_TRIALS * (STIMULUS_SECONDS + ISI_SECONDS)
+        rule = (f"{n}個前の数字と一致：右矢印／不一致：左矢印\n"
+                f"各ブロックの最初の{n}試行：左矢印\n")
     return (f"{n}-back課題\n\n" + rule
-            + "数字の表示中と、その後の「＋」表示中に回答できます。\n"
-            + "1試行につき1回、回答してください。\n"
-            + f"1ブロック{N_TRIALS}試行（課題{active_seconds:g}秒）です。\n"
-            + f"課題後の休憩{REST_SECONDS:g}秒を含むブロックを{N_BLOCKS}回行います。\n"
-            + "待機・休憩中は「＋」を見てください。\n"
-            + "すべてのブロック後に、質問紙へ回答してください。\n\n"
+            + "刺激・「＋」表示中に1回回答\n\n"
             + "スペースキー（SPACE）：準備完了\nエスケープキー（ESC）：中断")
 
 

@@ -104,16 +104,12 @@ class BlockSyncDisplay(runtime.BlockSyncDisplay):
 
 def participant_instructions(assignment):
     return ("暗算課題（{}）\n\n"
-            "テンキーで答えを入力してください。\n"
-            "ナムロック（NumLock）を有効にしてください。\n"
-            "エンターキー（Enter）：全消去（テンキーのEnterも使用できます）\n"
-            "確定操作は不要です。\n"
-            "{}秒後に自動採点します。切り替わるまで修正できます。\n"
-            "1ブロック{}問、課題{}秒と休憩{}秒を{}回実施します。\n"
-            "休憩中は＋を見てください。最後に質問紙へ回答します。\n\n"
+            "テンキーで和を入力\n"
+            "ナムロック（NumLock）：ON\n"
+            "エンターキー（Enter）：全消去\n"
+            "{:g}秒後に自動採点\n\n"
             "スペースキー（SPACE）：準備完了\nエスケープキー（ESC）：中断").format(
-                assignment.condition_label, TRIAL_SECONDS,
-                N_TRIALS, N_TRIALS * TRIAL_SECONDS, REST_SECONDS, N_BLOCKS)
+                assignment.condition_label, TRIAL_SECONDS)
 
 
 class ArithmeticStimulus:

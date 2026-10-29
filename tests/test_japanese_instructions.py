@@ -12,27 +12,30 @@ from tests.test_pvsat_experiment import PvsatRig
 
 
 class JapaneseInstructionsTests(unittest.TestCase):
-    def test_nback_rules_and_configured_times_in_japanese(self):
+    def assert_brief_controls(self, text):
+        self.assertIn('スペースキー（SPACE）：準備完了', text)
+        self.assertIn('エスケープキー（ESC）：中断', text)
+        for phrase in ('例：', '1ブロック', '休憩', '質問紙', '回実施', '試行（課題'):
+            self.assertNotIn(phrase, text)
+
+    def test_brief_nback_rules_in_japanese(self):
         with tempfile.TemporaryDirectory() as root:
             task = Rig().load(root, full=True)
-            task.N_TRIALS, task.N_BLOCKS, task.REST_SECONDS = 12, 2, 15
             for session, n in ((1, 0), (2, 1), (4, 2), (3, 3)):
                 assignment = task.load_nback_assignment(task.COUNTERBALANCE_CSV, 'DNV', session)
                 text = task.participant_instructions(assignment)
                 self.assertIn('{}-back課題'.format(n), text)
-                self.assertIn('1ブロック12試行（課題24秒）', text)
-                self.assertIn('休憩15秒を含むブロックを2回', text)
-                self.assertIn('その後の「＋」表示中に回答できます', text)
-                self.assertIn('スペースキー（SPACE）：準備完了', text)
-                self.assertIn('エスケープキー（ESC）：中断', text)
+                self.assertIn('刺激・「＋」表示中に1回回答', text)
+                self.assert_brief_controls(text)
                 if n == 0:
-                    self.assertIn('「X」が表示されたら、右矢印キー', text)
-                    self.assertIn('0〜9の数字が表示されたら、左矢印キー', text)
+                    self.assertIn('「X」：右矢印／数字：左矢印', text)
                     self.assertNotIn('各ブロックの最初', text)
                 else:
-                    self.assertIn('{}個前の数字と同じなら、右矢印キー'.format(n), text)
-                    self.assertIn('異なる数字なら、左矢印キー', text)
-                    self.assertIn('最初の{}試行は、左矢印キー'.format(n), text)
+                    self.assertIn('{}個前の数字と一致：右矢印／不一致：左矢印'.format(n), text)
+                    self.assertIn('各ブロックの最初の{}試行：左矢印'.format(n), text)
+            task.ZERO_BACK_TARGET = 'Z'
+            zero = task.load_nback_assignment(task.COUNTERBALANCE_CSV, 'DNV', 1)
+            self.assertIn('「Z」：右矢印／数字：左矢印', task.participant_instructions(zero))
 
     def test_arithmetic_and_pvsat_keep_condition_specific_rules(self):
         with tempfile.TemporaryDirectory() as root:
@@ -43,25 +46,27 @@ class JapaneseInstructionsTests(unittest.TestCase):
                 text = arithmetic.participant_instructions(assignment)
                 self.assertIn('暗算課題（{}）'.format(condition), text)
                 self.assertNotIn('3桁 + 3桁', text)
-                self.assertIn('ナムロック（NumLock）を有効', text)
+                self.assertIn('テンキーで和を入力', text)
+                self.assertIn('ナムロック（NumLock）：ON', text)
                 self.assertIn('エンターキー（Enter）：全消去', text)
-                self.assertIn('テンキーのEnterも使用できます', text)
-                self.assertIn('確定操作は不要', text)
                 self.assertNotIn('Backspace', text)
                 self.assertNotIn('Delete', text)
-                self.assertIn('5.0秒後に自動採点', text)
-                self.assertIn('1ブロック12問', text)
-                self.assertIn('3回実施', text)
+                self.assertIn('5秒後に自動採点', text)
+                self.assert_brief_controls(text)
+            arithmetic.TRIAL_SECONDS = 4.5
+            self.assertIn('4.5秒後に自動採点', arithmetic.participant_instructions(assignment))
             pvsat = PvsatRig().load_pvsat(root)
-            for subject, session, count, interval in (('DNV', 1, 24, 2.5), ('JXZ', 2, 30, 2.0), ('AFX', 1, 40, 1.5)):
+            for subject, session, interval in (('DNV', 1, 2.5), ('JXZ', 2, 2.0), ('AFX', 1, 1.5)):
                 assignment = pvsat.load_pvsat_assignment(pvsat.COUNTERBALANCE_CSV, subject, session)
                 text = pvsat.participant_instructions(assignment)
-                self.assertIn('和が11と一致：右矢印', text)
-                self.assertIn('一致しない：左矢印', text)
-                self.assertIn('最初の数字は覚えるだけで、回答しません', text)
-                self.assertIn('合計を足し続けないでください', text)
-                self.assertIn('1ブロック{}個'.format(count), text)
-                self.assertIn('{}秒ごとに切り替わります'.format(interval), text)
+                self.assertIn('PVSAT課題（提示間隔{:g}秒）'.format(interval), text)
+                self.assertIn('直前の数字との和が11：右矢印／それ以外：左矢印', text)
+                self.assertIn('各ブロックの最初の数字は記憶のみ（回答なし）', text)
+                self.assertIn('2個目から、数字・「＋」表示中に1回回答', text)
+                self.assert_brief_controls(text)
+            pvsat.TARGET_SUM = 10
+            self.assertIn('直前の数字との和が10：右矢印／それ以外：左矢印',
+                          pvsat.participant_instructions(assignment))
 
     def test_all_three_tasks_show_japanese_guidance_and_keep_original_calibration_logs(self):
         for task_name in ('nback', 'arithmetic', 'pvsat'):

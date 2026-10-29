@@ -78,24 +78,13 @@ TRIAL_COLUMNS = [
 
 
 def participant_instructions(assignment):
-    interval, isi, count = presentation_settings(assignment.difficulty_level, TASK_SECONDS, STIMULUS_SECONDS)
-    example_a, example_b = next((a, b) for a in DIGITS for b in DIGITS if a + b == TARGET_SUM)
-    example_c = next(digit for digit in DIGITS if example_b + digit != TARGET_SUM)
-    return ("PVSAT課題\n\n"
-            "今の数字と、その直前に表示された数字を足してください。\n"
-            "和が{}と一致：右矢印    一致しない：左矢印\n"
-            "例：{}→{}は右、{}→{}は左です。\n"
-            "各ブロックの最初の数字は覚えるだけで、回答しません。\n"
-            "以降は、数字とその後の＋の間に1回回答してください。\n"
-            "毎回、直前の数字と足します。合計を足し続けないでください。\n"
-            "数字は1〜9です。ブロックが変わったら前の数字を忘れてください。\n"
-            "数字{}秒＋注視点{}秒で、{}秒ごとに切り替わります。\n"
-            "1ブロック{}個・課題{}秒＋休憩{}秒を{}回実施します。\n"
-            "休憩中は＋を見てください。最後に質問紙へ回答します。\n\n"
+    interval = presentation_settings(assignment.difficulty_level, TASK_SECONDS, STIMULUS_SECONDS)[0]
+    return ("PVSAT課題（提示間隔{:g}秒）\n\n"
+            "直前の数字との和が{}：右矢印／それ以外：左矢印\n"
+            "各ブロックの最初の数字は記憶のみ（回答なし）\n"
+            "2個目から、数字・「＋」表示中に1回回答\n\n"
             "スペースキー（SPACE）：準備完了\nエスケープキー（ESC）：中断").format(
-                TARGET_SUM, example_a, example_b, example_b, example_c,
-                STIMULUS_SECONDS, isi, interval, count,
-                TASK_SECONDS, REST_SECONDS, N_BLOCKS)
+                interval, TARGET_SUM)
 
 
 def validate_screen_configuration():
