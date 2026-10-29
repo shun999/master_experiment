@@ -26,6 +26,24 @@ def create_output_prefix(output_root, task, participant_id, session_number,
     if task != "nback" and n_back is not None:
         raise ValueError("Only N-back uses an N value")
 
+    run_dir, run_id = _reserve_run_directory(output_root, task, participant_id, session_number)
+    filename = "{}_{}_s{:02d}_d{:02d}".format(
+        participant_id, task, session_number, difficulty_level)
+    if n_back is not None:
+        filename += "_n{:02d}".format(n_back)
+    return run_dir / (filename + "_" + run_id)
+
+
+def create_rest_output_prefix(output_root, participant_id, session_number):
+    """Reserve a resting-baseline run; its positive session count is independent."""
+    participant_id = normalize_participant_id(participant_id)
+    if type(session_number) is not int or session_number < 1:
+        raise ValueError("安静時測定の回数は1以上の整数で指定してください。")
+    run_dir, run_id = _reserve_run_directory(output_root, "rest", participant_id, session_number)
+    return run_dir / ("{}_rest_s{:02d}_{}".format(participant_id, session_number, run_id))
+
+
+def _reserve_run_directory(output_root, task, participant_id, session_number):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     session_dir = Path(output_root) / task / participant_id / "session_{:02d}".format(session_number)
     session_dir.mkdir(parents=True, exist_ok=True)
@@ -39,8 +57,4 @@ def create_output_prefix(output_root, task, participant_id, session_number,
         except FileExistsError:
             attempt += 1
 
-    filename = "{}_{}_s{:02d}_d{:02d}".format(
-        participant_id, task, session_number, difficulty_level)
-    if n_back is not None:
-        filename += "_n{:02d}".format(n_back)
-    return run_dir / (filename + "_" + run_id)
+    return run_dir, run_id

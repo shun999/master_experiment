@@ -7,11 +7,12 @@ experiment/
   psychopy2022_spectrum1200_nback_lightweight.py       # N-backの起動・設定
   psychopy2022_spectrum1200_arithmetic_lightweight.py  # 暗算の起動・設定
   psychopy2022_spectrum1200_pvsat_lightweight.py       # PVSATの起動・設定
+  psychopy2022_resting_baseline.py                    # 安静時の注視点・Lap記録
   demo_nback.py                                      # 1-backの説明用デモ
   demo_arithmetic.py                                 # 暗算・難易度1の説明用デモ
   demo_pvsat.py                                      # PVSAT・難易度1の説明用デモ
   counterbalance.csv                                 # ID・実験回数の割り当て
-  src/                 # 3課題が使用する内部処理
+  src/                 # 課題・デモ・安静時測定が使用する内部処理
   tests/               # 機器を使用しない自動テスト
   tools/               # 実験後の視線データ解析
   docs/                # 解析の説明資料
@@ -70,7 +71,7 @@ N-back・暗算・PVSATの課題説明、校正前の赤い点を見る案内、
 
 ## ID・実験回数ごとの結果保存
 
-入力したID・実験回数から、`data/<課題>/<ID>/session_<回数>/<日時>/` を作成します。課題名は `nback`、`arithmetic`、`pvsat` です。実験回数は課題ごとに独立して数えます。
+入力したID・実験回数から、`data/<課題>/<ID>/session_<回数>/<日時>/` を作成します。課題名は `nback`、`arithmetic`、`pvsat`、安静時測定は `rest` です。実験回数は課題ごとに独立して数えます。
 
 ```text
 data/
@@ -89,6 +90,38 @@ data/
 既存の `nback_data/`・`arithmetic_data/` は移動・変更しません。新しい保存先と従来の保存先はGitの追跡対象から除外します。
 
 解析には `tools/tobii_nback_1200hz_features.py` を使用します。引数なしでは `data/nback/` 配下を再帰検索して最新の視線CSVを選び、新しい結果がない場合は従来の `nback_data/` を検索します。暗算・PVSATや特定の実行を選ぶ場合は `--gaze` に視線CSVのパスを指定してください。解析結果は入力CSVと同じフォルダーに保存します。詳細は[解析手順](docs/README_Tobii_Nback_1200Hz_Features_JA.md)を参照してください。
+
+## 安静時測定：注視点とLap記録
+
+`psychopy2022_resting_baseline.py`をPsychoPy Coderで起動します。実行PCには、この起動ファイルと**`src/`全体**を同じ配置でコピーしてください。追加ライブラリやTobii SDKは不要です。PsychoPy 2022.2.4・Python 3.8.10を対象とします。
+
+最初に英字3文字の被験者IDと、1以上の「安静時測定の回数」を入力します。小文字・前後の空白は正規化します。回数はN-back・暗算・PVSATとは独立して数え、3回・4回の上限はありません。割り当てCSVを使用せず、入力をキャンセルした場合は結果フォルダーを作りません。プログラムからは`main(participant_id="AFX", session_number=1)`でも起動できます。
+
+被験者画面はscreen=1の全画面で、既存課題と同じ黒背景・中央の白い「+」・高さ48pxです。準備中から測定後に画面を閉じるまで、注視点だけを表示します。実施者画面はscreen=0の960×640ウィンドウ、`waitBlanking=False`で、経過時間、予定時間、Lap総数、直近5件の累積・区間時間を最大5Hzで更新します。拡張表示のモニター2台が必要です。
+
+- **Enter（通常・テンキー）**：準備画面から計時を開始します。
+- **SPACE**：測定中にLapを記録します。測定の開始・一時停止には使いません。
+- **ESC**：中断し、記録を保存して両画面を閉じます。開始前でも中断できます。
+- **300秒で自動終了**：経過時間を05:00.0で止め、実施者画面に結果を表示します。その後のEnterまたはESCで両画面を閉じます。測定後のSPACEは記録しません。
+
+起動ファイル先頭の`DURATION_SECONDS = 300.0`で測定時間を変更できます。`SCREEN_INDEX`・`OPERATOR_SCREEN_INDEX`・`OPERATOR_WINDOW_SIZE`・`OPERATOR_REFRESH_HZ`で画面を設定します。同期用のカウントダウン、マーカー合図、Raw TLXはありません。fNIRS・NeXuSの収録開始・終了は各計測機器側で行ってください。このプログラムは機器の接続や生体信号の保存・校正計算を行わず、注視点提示と時間記録を担当します。
+
+### 安静時測定の保存内容
+
+保存先は`data/rest/<ID>/session_<回数>/<日時>/`です。ファイル名の例は`AFX_rest_s01_<日時>_laps.csv`で、再実行時の上書き防止は既存課題と同じです。
+
+| ファイル | 内容 |
+| --- | --- |
+| `*_laps.csv` | `lap_number`：手動Lap番号、`elapsed_seconds`：開始からの秒数、`lap_seconds`：前回Lapからの秒数、`timestamp_iso`：開始UTC日時＋経過秒から算出した日時 |
+| `*_metadata.json` | ID・回数、完了／中断／エラーの状態、予定・実測時間、開始・終了日時、Lap件数、保存先、画面・注視点の設定 |
+| `*_progress.log` | 起動段階、計時開始、Lap、自動終了・中断のログ |
+| `*_startup_traceback.log` | 起動時に各操作が20秒を超えた場合の診断用スタック。設定方法は既存課題と同じです |
+
+最初のLapの区間時間は計時開始からの秒数です。自動終了は手動Lapに追加せず、LapがなくてもCSVの見出しとメタデータを保存します。Lapはキーの検出時刻ではなく、計時開始フリップでリセットしたキーボード時計に対する**押下時刻**から求めます。開始前、測定時間の締め切り以降、測定終了後のSPACEは採用しません。CSVは1件ごとに追記・フラッシュし、メタデータも更新します。日時はこのプログラムの時計から算出した値で、計測機器側のタイムスタンプではありません。
+
+終了時の実測時間には、締め切りを検出したフレームまでの小さな遅れを含むため、予定300秒と完全には一致しないことがあります。終了後に結果画面を開いている時間は測定時間に加算しません。起動診断は既存と同じ`STARTUP_DIAGNOSTICS`・`STARTUP_TRACEBACK_SECONDS`で設定し、準備待ちや計時中には診断タイマーを動かしません。
+
+模擬テストでは300秒の進行、Lapの区間・累積時間、締め切り、中断・エラー時の保存、2画面の設定を確認します。実機では注視点の見た目、日本語表示、Enter・SPACE・ESC、300秒で計時が止まることを確認してください。
 
 ## PVSAT課題の起動と実施方法
 
