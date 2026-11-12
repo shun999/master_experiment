@@ -14,7 +14,9 @@ labels as predictors. Use subject-wise train/test splits; fit transforms on trai
 
 # ===================== EDIT IN PSYCHOPY CODER ===========================
 from pathlib import Path
-DATA_DIR = Path(__file__).resolve().parent / "nback_data"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DATA_DIR = PROJECT_ROOT / "data" / "nback"
+LEGACY_DATA_DIR = PROJECT_ROOT / "nback_data"
 RUN_PREFIX = ""           # "": newest *_gaze.csv, or e.g. "P001_20261022_..."
 MAX_DERIVATIVE_GAP_MS = 3.0  # >3 ms or timestamp reversal: derivative = missing
 OPENNESS_MATCH_TOLERANCE_US = 0  # default EXACT device timestamp match
@@ -264,12 +266,15 @@ class TrialLabels:
         event_csv = Path(str(base) + "_events.csv")
         if not trials_csv.exists():
             return
-        ev_end = None
+        ev_ends = []
+        response_ends = []
         if event_csv.exists():
             with event_csv.open("r", encoding="utf-8-sig", newline="") as f:
                 for ev in csv.DictReader(f):
                     if ev.get("event") == "task_end":
-                        ev_end = integer(ev.get("system_time_stamp_us"))
+                        end = integer(ev.get("system_time_stamp_us"))
+                        if end is not None:
+                            ev_ends.append(end)
         try:
             with trials_csv.open("r", encoding="utf-8-sig", newline="") as f:
                 for r in csv.DictReader(f):
@@ -280,23 +285,31 @@ class TrialLabels:
                     self.starts.append(start)
                     self.stim_ends.append(offset)
                     self.ids.append(r.get("trial", ""))
+                    response_ends.append(integer(r.get("response_window_end_us")))
             if not self.starts:
                 return
             order = sorted(range(len(self.starts)), key=self.starts.__getitem__)
             self.starts = [self.starts[i] for i in order]
             self.stim_ends = [self.stim_ends[i] for i in order]
             self.ids = [self.ids[i] for i in order]
+            response_ends = [response_ends[i] for i in order]
             isi = number(metadata.get("isi_seconds"))
             isi_us = int(isi * 1000000) if finite(isi) else 0
             for i, start in enumerate(self.starts):
+                candidates = []
                 if i < len(self.starts) - 1:
-                    self.ends.append(self.starts[i + 1])
-                elif ev_end is not None and ev_end > start:
-                    self.ends.append(ev_end)
-                elif self.stim_ends[i] is not None:
-                    self.ends.append(self.stim_ends[i] + isi_us)
+                    candidates.append(self.starts[i + 1])
+                if response_ends[i] is not None:
+                    # Explicit response windows keep rests and sync outside trials,
+                    # including a partially completed trial on ESC.
+                    candidates.append(max(start, response_ends[i]))
                 else:
-                    self.ends.append(start)
+                    if self.stim_ends[i] is not None:
+                        candidates.append(self.stim_ends[i] + isi_us)
+                    later_task_ends = [end for end in ev_ends if end > start]
+                    if later_task_ends:
+                        candidates.append(min(later_task_ends))
+                self.ends.append(min(candidates) if candidates else start)
             self.available = True
         except (OSError, ValueError) as exc:
             print("WARNING: trial metadata could not be read:", exc)
@@ -496,15 +509,26 @@ def find_input(explicit=None):
         return p
     if RUN_PREFIX.strip():
         candidate = Path(RUN_PREFIX.strip()).expanduser()
-        if not candidate.is_absolute():
-            candidate = DATA_DIR / candidate
-        if str(candidate).endswith("_gaze.csv"):
+        if not str(candidate).endswith("_gaze.csv"):
+            candidate = Path(str(candidate) + "_gaze.csv")
+        if candidate.is_absolute():
             return candidate
-        return Path(str(candidate) + "_gaze.csv")
-    matches = list(DATA_DIR.glob("*_gaze.csv"))
-    if not matches:
-        raise FileNotFoundError("No *_gaze.csv was found in {}".format(DATA_DIR))
-    return max(matches, key=lambda p: p.stat().st_mtime)
+        for directory in (DATA_DIR, LEGACY_DATA_DIR):
+            direct = directory / candidate
+            if direct.is_file():
+                return direct
+            if candidate.parent == Path("."):
+                matches = [p for p in directory.rglob("*_gaze.csv") if p.name == candidate.name]
+                if len(matches) > 1:
+                    raise ValueError("Multiple recordings match RUN_PREFIX; specify the full path or --gaze")
+                if matches:
+                    return matches[0]
+        return DATA_DIR / candidate
+    for directory in (DATA_DIR, LEGACY_DATA_DIR):
+        matches = [p for p in directory.rglob("*_gaze.csv") if p.is_file()]
+        if matches:
+            return max(matches, key=lambda p: (p.stat().st_mtime, str(p)))
+    raise FileNotFoundError("No *_gaze.csv was found in {} or {}".format(DATA_DIR, LEGACY_DATA_DIR))
 
 
 def output_float(value):
